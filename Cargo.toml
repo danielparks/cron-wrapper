@@ -2,7 +2,7 @@
 name = "cron-wrapper"
 version = "0.1.0"
 authors = ["Daniel Parks <oss-cron-wrapper@demonhorse.org>"]
-description = ""
+description = "Cron job wrapper for better failure reporting"
 homepage = "https://github.com/danielparks/cron-wrapper"
 repository = "https://github.com/danielparks/cron-wrapper"
 documentation = "https://github.com/danielparks/cron-wrapper"
@@ -11,11 +11,16 @@ keywords = []
 categories = [] # https://crates.io/category_slugs
 license = "MIT OR Apache-2.0"
 edition = "2021"
-rust-version = "1.60"
+rust-version = "1.64"
 
 [dependencies]
 anyhow = "1.0.44"
 clap = { version = "4.0.18", features = ["derive"] }
 log = "0.4.14"
 simplelog = "0.12.0"
-smol = "1.2.5"
+
+[dev-dependencies]
+assert2 = "0.3.7"
+assert_cmd = "2.0.7"
+bstr = { version = "1.1.0", default-features = false }
+nix = { version = "0.26.1", default-features = false, features = ["signal", "process"] }

@@ -6,26 +6,40 @@ use simplelog::{
     ColorChoice, CombinedLogger, Config, ConfigBuilder, LevelFilter,
     TermLogger, TerminalMode,
 };
-use std::process::exit;
+use std::ffi::OsString;
+use std::os::unix::process::ExitStatusExt;
+use std::process;
+
+macro_rules! fail {
+    ($($arg:tt)*) => {{
+        eprintln!($($arg)*);
+        process::exit(1);
+    }};
+}
 
 #[derive(Debug, clap::Parser)]
 #[clap(version, about)]
 struct Params {
+    /// The executable to run
+    pub command: OsString,
+
+    /// Arguments to pass to the executable
+    #[clap(allow_hyphen_values = true)]
+    pub args: Vec<OsString>,
+
     /// Verbosity (may be repeated up to three times)
     #[clap(short, long, action = clap::ArgAction::Count)]
     verbose: u8,
 }
 
 fn main() {
-    smol::block_on(async {
-        if let Err(error) = cli(Params::parse()).await {
-            eprintln!("Error: {:#}", error);
-            exit(1);
-        }
-    })
+    if let Err(error) = cli(Params::parse()) {
+        eprintln!("Error: {:#}", error);
+        process::exit(1);
+    }
 }
 
-async fn cli(params: Params) -> anyhow::Result<()> {
+fn cli(params: Params) -> anyhow::Result<()> {
     let filter = match params.verbose {
         4.. => bail!("-v is only allowed up to 3 times."),
         3 => LevelFilter::Trace,
@@ -37,23 +51,21 @@ async fn cli(params: Params) -> anyhow::Result<()> {
     // Configure different logging for a module (sqlx::query here).
     CombinedLogger::init(vec![
         // Default logger
-        new_term_logger(
-            filter,
-            new_logger_config()
-                .add_filter_ignore_str("sqlx::query")
-                .build(),
-        ),
-        // Logger for sqlx::query
-        new_term_logger(
-            LevelFilter::Warn,
-            new_logger_config()
-                .add_filter_allow_str("sqlx::query")
-                .build(),
-        ),
+        new_term_logger(filter, new_logger_config().build()),
     ])
     .unwrap();
 
-    Ok(())
+    let mut child = process::Command::new(&params.command)
+        .args(&params.args)
+        .spawn()
+        .unwrap_or_else(|err| {
+            fail!("Could not run command {:?}: {}", params.command, err);
+        });
+
+    let status = child.wait().expect("failed to wait on child");
+    process::exit(
+        wait_status_to_code(status).expect("no exit code or signal for child"),
+    );
 }
 
 fn new_term_logger(level: LevelFilter, config: Config) -> Box<TermLogger> {
@@ -70,4 +82,9 @@ fn new_logger_config() -> ConfigBuilder {
     let _ = builder.set_time_offset_to_local();
 
     builder
+}
+
+/// Get the actual exit code from a finished child process
+fn wait_status_to_code(status: process::ExitStatus) -> Option<i32> {
+    status.code().or_else(|| Some(128 + status.signal()?))
 }

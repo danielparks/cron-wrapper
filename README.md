@@ -1,7 +1,6 @@
-# cron-wrapper
+# Cron job wrapper for better failure reporting
 
-Generated from template https://github.com/danielparks/danielparks-template.rs
-with [cargo-generate](https://github.com/ashleygwilliams/cargo-generate).
+Add cron-wrapper to your cron jobs to configure when they produce output.
 
 ## Installation
 
