@@ -2,6 +2,7 @@
 
 use anyhow::bail;
 use clap::Parser;
+use log::{error, info};
 use simplelog::{
     ColorChoice, CombinedLogger, Config, ConfigBuilder, LevelFilter,
     TermLogger, TerminalMode,
@@ -10,9 +11,10 @@ use std::ffi::OsString;
 use std::os::unix::process::ExitStatusExt;
 use std::process;
 
+// Requires logging to be set up
 macro_rules! fail {
     ($($arg:tt)*) => {{
-        eprintln!($($arg)*);
+        error!($($arg)*);
         process::exit(1);
     }};
 }
@@ -55,6 +57,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
     ])
     .unwrap();
 
+    info!("Start: {:?} {:?}", params.command, params.args);
     let mut child = process::Command::new(&params.command)
         .args(&params.args)
         .spawn()
@@ -62,10 +65,11 @@ fn cli(params: Params) -> anyhow::Result<()> {
             fail!("Could not run command {:?}: {}", params.command, err);
         });
 
-    let status = child.wait().expect("failed to wait on child");
-    process::exit(
-        wait_status_to_code(status).expect("no exit code or signal for child"),
-    );
+    let code =
+        wait_status_to_code(child.wait().expect("failed to wait on child"))
+            .expect("no exit code or signal for child");
+    info!("Exit with {code}: {:?} {:?}", params.command, params.args);
+    process::exit(code);
 }
 
 fn new_term_logger(level: LevelFilter, config: Config) -> Box<TermLogger> {
