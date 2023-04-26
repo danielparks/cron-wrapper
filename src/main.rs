@@ -3,7 +3,8 @@
 use anyhow::bail;
 use bstr::ByteSlice;
 use clap::Parser;
-use log::{debug, error, info, trace};
+use log::Level::Trace;
+use log::{debug, error, info, log_enabled, trace};
 use popol::set_nonblocking;
 use simplelog::{
     ColorChoice, CombinedLogger, Config, ConfigBuilder, LevelFilter,
@@ -128,10 +129,11 @@ fn cli(params: Params) -> anyhow::Result<()> {
                         buffer[..count].as_bstr()
                     );
 
-                    if count > 0 {
-                        // Only output if there’s something to output.
+                    if count > 0 && !log_enabled!(Trace) {
+                        // Only output if there’s something to output and we’re
+                        // not in trace mode.
                         out.write_all(&buffer[..count])?;
-                        out.flush()?; // If there wasn’t a newline.
+                        out.flush()?; // In case there wasn’t a newline.
                     }
 
                     if count < buffer.len() {
