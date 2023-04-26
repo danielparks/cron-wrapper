@@ -15,12 +15,14 @@ rust-version = "1.64"
 
 [dependencies]
 anyhow = "1.0.44"
+bstr = { version = "1.1.0", default-features = false }
 clap = { version = "4.0.18", features = ["derive"] }
+duration-str = { version = "0.5.0", default-features = false }
 log = "0.4.14"
+popol = "2.0.0"
 simplelog = "0.12.0"
 
 [dev-dependencies]
 assert2 = "0.3.7"
 assert_cmd = "2.0.7"
-bstr = { version = "1.1.0", default-features = false }
 nix = { version = "0.26.1", default-features = false, features = ["signal", "process"] }

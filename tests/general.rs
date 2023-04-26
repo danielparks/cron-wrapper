@@ -15,14 +15,14 @@ fn midline_sleep_all() {
 }
 
 #[test]
-fn mixed_output_no_color_combined() {
+fn mixed_output() {
     let output = helpers::run(["tests/fixtures/mixed_output.sh"])
         .output()
         .unwrap();
 
     check!(output.status.success());
-    check!(output.stdout.as_bstr() == "111333\n");
-    check!(output.stderr.as_bstr() == "aaabbb\n");
+    check!(output.stdout.as_bstr() == "111aaa333\nbbb\n");
+    check!(output.stderr.as_bstr() == "");
 }
 
 #[test]
