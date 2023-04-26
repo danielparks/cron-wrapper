@@ -78,8 +78,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
         .expect("child stderr cannot be set to non-blocking");
     sources.register(PollKey::Err, &child_err, popol::interest::READ);
 
-    let mut out_out = std::io::stdout();
-    let mut out_err = std::io::stdout();
+    let mut out = std::io::stdout();
 
     let mut buffer = vec![0; params.buffer_size];
 
@@ -131,13 +130,8 @@ fn cli(params: Params) -> anyhow::Result<()> {
 
                     if count > 0 {
                         // Only output if there’s something to output.
-                        if event.key == PollKey::Out {
-                            out_out.write_all(&buffer[..count])?;
-                            out_out.flush()?; // If there wasn’t a newline.
-                        } else {
-                            out_err.write_all(&buffer[..count])?;
-                            out_err.flush()?; // If there wasn’t a newline.
-                        }
+                        out.write_all(&buffer[..count])?;
+                        out.flush()?; // If there wasn’t a newline.
                     }
 
                     if count < buffer.len() {
