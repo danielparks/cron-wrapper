@@ -125,8 +125,9 @@ fn cli(params: Params) -> anyhow::Result<()> {
                     };
 
                     trace!(
-                        "read {count} bytes {:?}",
-                        buffer[..count].as_bstr()
+                        "{:?}: read {count} bytes: {:?}",
+                        event.key,
+                        buffer[..count].as_bstr(),
                     );
 
                     if count > 0 && !log_enabled!(Trace) {
