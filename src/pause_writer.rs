@@ -36,6 +36,11 @@ impl<W: io::Write> PausableWriter<W> {
         }
     }
 
+    /// Whether or not this is paused
+    pub fn is_paused(&self) -> bool {
+        self.state != State::Running
+    }
+
     /// Unpause the writer: write any buffered data and allow future writes to
     /// pass through.
     pub fn unpause(&mut self) -> io::Result<()> {

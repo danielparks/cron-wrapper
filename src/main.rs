@@ -138,7 +138,10 @@ fn cli(params: Params) -> anyhow::Result<()> {
                         buffer[..count].as_bstr(),
                     );
 
-                    if params.on_error && event.key == PollKey::Err && count > 0
+                    if params.on_error
+                        && out.is_paused()
+                        && event.key == PollKey::Err
+                        && count > 0
                     {
                         debug!("--on-error enabled: unpausing output");
                         out.unpause()?;
@@ -173,7 +176,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
     let code = wait_status_to_code(status).expect("no exit code for child");
     info!("Exit with {code}: {:?} {:?}", params.command, params.args);
 
-    if code != 0 {
+    if code != 0 && out.is_paused() {
         // FIXME? should this be optional behavior?
         debug!("Exited with non-zero: unpausing output");
         out.unpause()?;
