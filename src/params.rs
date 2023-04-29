@@ -13,6 +13,10 @@ pub(crate) struct Params {
     #[clap(allow_hyphen_values = true)]
     pub args: Vec<OsString>,
 
+    /// Output if the exit code is not 0
+    #[clap(short = 'E', long)]
+    pub on_error: bool,
+
     /// Verbosity (may be repeated up to three times)
     #[clap(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
@@ -167,22 +171,22 @@ mod tests {
         check!(params.verbose == 1);
     }
 
-    // #[test]
-    // #[ignore] // FIXME clap doesn’t stop parsing after first non-flag.
-    // fn args_our_long_option_after_command() {
-    //     let_assert!(
-    //         Ok(params) = Params::try_parse_from([
-    //             "cron-wrapper",
-    //             "--verbose",
-    //             "command",
-    //             "--separate",
-    //         ])
-    //     );
-    //     check!(params.command == "command");
-    //     check!(params.args == ["--separate"]);
-    //     check!(params.verbose == 1);
-    //     check!(params.separate == false);
-    // }
+    #[test]
+    #[ignore] // FIXME clap doesn’t stop parsing after first non-flag.
+    fn args_our_long_option_after_command() {
+        let_assert!(
+            Ok(params) = Params::try_parse_from([
+                "cron-wrapper",
+                "--verbose",
+                "command",
+                "--on-error",
+            ])
+        );
+        check!(params.command == "command");
+        check!(params.args == ["--on-error"]);
+        check!(params.verbose == 1);
+        check!(params.on_error == false);
+    }
 
     #[test]
     #[ignore] // FIXME clap doesn’t stop parsing after first non-flag.
@@ -200,19 +204,18 @@ mod tests {
         check!(params.verbose == 1);
     }
 
-    // #[test]
-    // #[ignore] // FIXME clap doesn’t stop parsing after first non-flag.
-    // fn args_our_short_option_after_command() {
-    //     let_assert!(
-    //         Ok(params) =
-    //             Params::try_parse_from(["cron-wrapper", "-v", "command", "-x"])
-    //     );
-    //     /// FIXME wrong, need two short options
-    //     check!(params.command == "command");
-    //     check!(params.args == ["-v"]);
-    //     check!(params.verbose == 1);
-    //     check!(params.x == 0);
-    // }
+    #[test]
+    #[ignore] // FIXME clap doesn’t stop parsing after first non-flag.
+    fn args_our_short_option_after_command() {
+        let_assert!(
+            Ok(params) =
+                Params::try_parse_from(["cron-wrapper", "-v", "command", "-E"])
+        );
+        check!(params.command == "command");
+        check!(params.args == ["-E"]);
+        check!(params.verbose == 1);
+        check!(params.on_error == false);
+    }
 
     #[test]
     #[ignore] // FIXME clap doesn’t stop parsing after first non-flag.

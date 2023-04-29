@@ -22,6 +22,9 @@ use params::Params;
 mod timeout;
 use timeout::Timeout;
 
+mod pause_writer;
+use pause_writer::PausableWriter;
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 enum PollKey {
     Out,
@@ -79,7 +82,12 @@ fn cli(params: Params) -> anyhow::Result<()> {
         .expect("child stderr cannot be set to non-blocking");
     sources.register(PollKey::Err, &child_err, popol::interest::READ);
 
-    let mut out = std::io::stdout();
+    let mut out = PausableWriter::new(io::stdout());
+    if params.on_error {
+        out.pause();
+    } else {
+        out.unpause()?;
+    }
 
     let mut buffer = vec![0; params.buffer_size];
 
@@ -130,6 +138,12 @@ fn cli(params: Params) -> anyhow::Result<()> {
                         buffer[..count].as_bstr(),
                     );
 
+                    if params.on_error && event.key == PollKey::Err && count > 0
+                    {
+                        debug!("--on-error enabled: unpausing output");
+                        out.unpause()?;
+                    }
+
                     if count > 0 && !log_enabled!(Trace) {
                         // Only output if there’s something to output and we’re
                         // not in trace mode.
@@ -159,6 +173,13 @@ fn cli(params: Params) -> anyhow::Result<()> {
         wait_status_to_code(child.wait().expect("failed to wait on child"))
             .expect("no exit code or signal for child");
     info!("Exit with {code}: {:?} {:?}", params.command, params.args);
+
+    if code != 0 {
+        // FIXME? should this be optional behavior?
+        debug!("Exited with non-zero: unpausing output");
+        out.unpause()?;
+    }
+
     process::exit(code);
 }
 

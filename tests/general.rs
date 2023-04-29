@@ -4,6 +4,51 @@ use bstr::{ByteSlice, B};
 mod helpers;
 
 #[test]
+fn only_out_unconditional() {
+    let output = helpers::run(["tests/fixtures/only_out.sh"])
+        .output()
+        .unwrap();
+
+    check!(output.status.success());
+    check!(output.stdout.as_bstr() == "out\n");
+    check!(output.stderr.as_bstr() == "");
+}
+
+#[test]
+fn only_out_on_error() {
+    let output = helpers::run(["--on-error", "tests/fixtures/only_out.sh"])
+        .output()
+        .unwrap();
+
+    check!(output.status.success());
+    check!(output.stdout.as_bstr() == "");
+    check!(output.stderr.as_bstr() == "");
+}
+
+#[test]
+fn only_out_fail_unconditional() {
+    let output = helpers::run(["tests/fixtures/only_out_fail.sh"])
+        .output()
+        .unwrap();
+
+    check!(output.status.code() == Some(1));
+    check!(output.stdout.as_bstr() == "out\n");
+    check!(output.stderr.as_bstr() == "");
+}
+
+#[test]
+fn only_out_fail_on_error() {
+    let output =
+        helpers::run(["--on-error", "tests/fixtures/only_out_fail.sh"])
+            .output()
+            .unwrap();
+
+    check!(output.status.code() == Some(1));
+    check!(output.stdout.as_bstr() == "out\n");
+    check!(output.stderr.as_bstr() == "");
+}
+
+#[test]
 fn midline_sleep_all() {
     let output = helpers::run(["tests/fixtures/midline_sleep.sh"])
         .output()
@@ -15,8 +60,19 @@ fn midline_sleep_all() {
 }
 
 #[test]
-fn mixed_output() {
+fn mixed_output_unconditional() {
     let output = helpers::run(["tests/fixtures/mixed_output.sh"])
+        .output()
+        .unwrap();
+
+    check!(output.status.success());
+    check!(output.stdout.as_bstr() == "111aaa333\nbbb\n");
+    check!(output.stderr.as_bstr() == "");
+}
+
+#[test]
+fn mixed_output_on_error() {
+    let output = helpers::run(["--on-error", "tests/fixtures/mixed_output.sh"])
         .output()
         .unwrap();
 
