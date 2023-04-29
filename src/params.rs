@@ -13,7 +13,7 @@ pub(crate) struct Params {
     #[clap(allow_hyphen_values = true)]
     pub args: Vec<OsString>,
 
-    /// Output if the exit code is not 0
+    /// Output if there is output on stderr
     #[clap(short = 'E', long)]
     pub on_error: bool,
 
