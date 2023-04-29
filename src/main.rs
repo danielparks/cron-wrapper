@@ -169,9 +169,8 @@ fn cli(params: Params) -> anyhow::Result<()> {
         }
     }
 
-    let code =
-        wait_status_to_code(child.wait().expect("failed to wait on child"))
-            .expect("no exit code or signal for child");
+    let status = child.wait().expect("failed to wait on child");
+    let code = wait_status_to_code(status).expect("no exit code for child");
     info!("Exit with {code}: {:?} {:?}", params.command, params.args);
 
     if code != 0 {
