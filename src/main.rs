@@ -83,7 +83,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
     sources.register(PollKey::Err, &child_err, popol::interest::READ);
 
     let mut out = PausableWriter::new(io::stdout());
-    if params.on_error {
+    if params.suppress_output() {
         out.pause();
     } else {
         out.unpause()?;
@@ -176,9 +176,8 @@ fn cli(params: Params) -> anyhow::Result<()> {
     let code = wait_status_to_code(status).expect("no exit code for child");
     info!("Exit with {code}: {:?} {:?}", params.command, params.args);
 
-    if code != 0 && out.is_paused() {
-        // FIXME? should this be optional behavior?
-        debug!("Exited with non-zero: unpausing output");
+    if code != 0 && params.on_fail && out.is_paused() {
+        debug!("--on-fail enabled: unpausing output");
         out.unpause()?;
     }
 

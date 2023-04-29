@@ -17,6 +17,10 @@ pub(crate) struct Params {
     #[clap(short = 'E', long)]
     pub on_error: bool,
 
+    /// Output if the exit code is not 0
+    #[clap(short = 'F', long)]
+    pub on_fail: bool,
+
     /// Verbosity (may be repeated up to three times)
     #[clap(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
@@ -47,6 +51,13 @@ pub(crate) struct Params {
         allow_hyphen_values = true
     )]
     pub buffer_size: usize,
+}
+
+impl Params {
+    /// Whether or not to suppress normal output
+    pub fn suppress_output(&self) -> bool {
+        self.on_error || self.on_fail
+    }
 }
 
 fn parse_duration(input: &str) -> anyhow::Result<Duration> {

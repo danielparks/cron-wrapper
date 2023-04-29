@@ -44,6 +44,17 @@ fn only_out_fail_on_error() {
             .unwrap();
 
     check!(output.status.code() == Some(1));
+    check!(output.stdout.as_bstr() == "");
+    check!(output.stderr.as_bstr() == "");
+}
+
+#[test]
+fn only_out_fail_on_fail() {
+    let output = helpers::run(["--on-fail", "tests/fixtures/only_out_fail.sh"])
+        .output()
+        .unwrap();
+
+    check!(output.status.code() == Some(1));
     check!(output.stdout.as_bstr() == "out\n");
     check!(output.stderr.as_bstr() == "");
 }
