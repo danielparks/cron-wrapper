@@ -54,6 +54,13 @@ fn main() {
 fn cli(params: Params) -> anyhow::Result<()> {
     init_logging(&params)?;
 
+    let mut out = PausableWriter::new(io::stdout());
+    if params.suppress_output() {
+        out.pause();
+    } else {
+        out.unpause()?;
+    }
+
     let run_timeout = Timeout::from(params.run_timeout).start();
     let idle_timeout = Timeout::from(params.idle_timeout);
 
@@ -81,13 +88,6 @@ fn cli(params: Params) -> anyhow::Result<()> {
     set_nonblocking(&child_err, true)
         .expect("child stderr cannot be set to non-blocking");
     sources.register(PollKey::Err, &child_err, popol::interest::READ);
-
-    let mut out = PausableWriter::new(io::stdout());
-    if params.suppress_output() {
-        out.pause();
-    } else {
-        out.unpause()?;
-    }
 
     let mut buffer = vec![0; params.buffer_size];
 
