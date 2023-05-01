@@ -252,7 +252,7 @@ fn poll(
     sources: &mut popol::Sources<PollKey>,
     events: &mut Vec<popol::Event<PollKey>>,
     timeout: &Timeout,
-) -> anyhow::Result<Option<Timeout>> {
+) -> io::Result<Option<Timeout>> {
     // FIXME? handle EINTR? I don’t think it will come up unless we have a
     // signal handler set.
     let timeout = timeout.start();
@@ -270,7 +270,7 @@ fn poll(
             }
 
             // Invalid timeout or other error.
-            return Err(error.into());
+            return Err(error);
         }
     }
 
