@@ -52,10 +52,10 @@ pub enum SubcommandError {
     #[error("Could not run command {command:?}: {error}")]
     Spawn { command: OsString, error: io::Error },
 
-    #[error("Error while waiting for input: {error:?}")]
+    #[error("Error while waiting for input: {error}")]
     Poll { error: io::Error },
 
-    #[error("Error reading from child {stream}: {error:?}")]
+    #[error("Error reading from child {stream}: {error}")]
     Read {
         error: io::Error,
         stream: StreamType,
