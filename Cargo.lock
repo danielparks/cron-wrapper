@@ -198,6 +198,7 @@ dependencies = [
  "nix",
  "popol",
  "simplelog",
+ "thiserror",
 ]
 
 [[package]]
