@@ -18,7 +18,7 @@ use params::Params;
 mod pause_writer;
 use pause_writer::PausableWriter;
 
-mod subcommand;
+mod command;
 mod timeout;
 
 fn main() {
@@ -33,7 +33,7 @@ struct Handler {
     pub params: Params,
 }
 
-impl subcommand::SubcommandHandler for Handler {
+impl command::Handler for Handler {
     fn on_out(&mut self, output: &[u8]) -> anyhow::Result<()> {
         if output.is_empty() {
             return Ok(());
@@ -91,7 +91,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
         out.unpause()?;
     }
 
-    let command = subcommand::Subcommand {
+    let child = command::Command {
         command: params.command.clone(),
         args: params.args.clone(),
         run_timeout: params.run_timeout.into(),
@@ -99,7 +99,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
         buffer_size: params.buffer_size,
     };
     let handler = Handler { out, params };
-    command.run(handler)?;
+    child.run(handler)?;
 
     panic!("how did I get here?");
 }

@@ -30,7 +30,7 @@ impl fmt::Display for StreamType {
     }
 }
 
-pub trait SubcommandHandler {
+pub trait Handler {
     /// Called when the child process emits on stdout.
     fn on_out(&mut self, _output: &[u8]) -> anyhow::Result<()> {
         Ok(())
@@ -48,7 +48,7 @@ pub trait SubcommandHandler {
 }
 
 #[derive(Error, Debug)]
-pub enum SubcommandError {
+pub enum Error {
     #[error("Could not run command {command:?}: {error}")]
     Spawn { command: OsString, error: io::Error },
 
@@ -68,7 +68,7 @@ pub enum SubcommandError {
     RunTimeout { timeout: Timeout },
 }
 
-pub struct Subcommand {
+pub struct Command {
     pub command: OsString,
     pub args: Vec<OsString>,
     pub run_timeout: Timeout,
@@ -76,11 +76,8 @@ pub struct Subcommand {
     pub buffer_size: usize,
 }
 
-impl Subcommand {
-    pub fn run(
-        &self,
-        mut handler: impl SubcommandHandler,
-    ) -> anyhow::Result<()> {
+impl Command {
+    pub fn run(&self, mut handler: impl Handler) -> anyhow::Result<()> {
         let run_timeout = self.run_timeout.start();
 
         info!("Start: {:?} {:?}", self.command, self.args);
@@ -94,7 +91,7 @@ impl Subcommand {
             .stdout(process::Stdio::piped())
             .stderr(process::Stdio::piped())
             .spawn()
-            .map_err(|error| SubcommandError::Spawn {
+            .map_err(|error| Error::Spawn {
                 command: self.command.clone(),
                 error,
             })?;
@@ -140,7 +137,7 @@ impl Subcommand {
                                     trace!("io::ErrorKind::WouldBlock");
                                     break;
                                 } else {
-                                    return Err(SubcommandError::Read {
+                                    return Err(Error::Read {
                                         error,
                                         stream: event.key,
                                     }
@@ -196,7 +193,7 @@ fn poll(
     sources: &mut popol::Sources<StreamType>,
     events: &mut Vec<popol::Event<StreamType>>,
     timeout: &Timeout,
-) -> Result<(), SubcommandError> {
+) -> Result<(), Error> {
     // If this is an overall run timeout, starting it again will just return a
     // clone of it.
     let poll_timeout = timeout.start();
@@ -220,7 +217,7 @@ fn poll(
             if call_timeout.is_none() || error.kind() != io::ErrorKind::TimedOut
             {
                 // Return all other errors.
-                return Err(SubcommandError::Poll { error });
+                return Err(Error::Poll { error });
             }
         }
     }
@@ -235,15 +232,11 @@ fn poll(
 /// `timeout`, since the idle timeout is always `Timeout::Future` or
 /// `Timeout::Never` and the overall run timeout is always `Timeout::Pending`
 /// or `Timeout::Never`.
-fn timeout_error(timeout: &Timeout, expired: Timeout) -> SubcommandError {
+fn timeout_error(timeout: &Timeout, expired: Timeout) -> Error {
     match &timeout {
         Timeout::Never => panic!("timed out when no timeout was set"),
         Timeout::Expired { .. } => panic!("did not expect Timeout::Expired"),
-        Timeout::Future { .. } => {
-            SubcommandError::IdleTimeout { timeout: expired }
-        }
-        Timeout::Pending { .. } => {
-            SubcommandError::RunTimeout { timeout: expired }
-        }
+        Timeout::Future { .. } => Error::IdleTimeout { timeout: expired },
+        Timeout::Pending { .. } => Error::RunTimeout { timeout: expired },
     }
 }
