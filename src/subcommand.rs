@@ -118,10 +118,6 @@ impl Subcommand {
         // used in the same line. Not sure this is possible to fix.
         while !sources.is_empty() {
             let timeout = cmp::min(&run_timeout, &self.idle_timeout);
-            if let Some(expired) = timeout.check_expired() {
-                timeout_fail(timeout, &expired)?;
-            }
-
             trace!("poll() with timeout {timeout} (run timeout {run_timeout})");
 
             poll(&mut sources, &mut events, timeout)?;
@@ -191,57 +187,63 @@ impl Subcommand {
 }
 
 /// Wait for input.
+///
+/// This wrapper around [`popol::Sources::poll()`] handles timeouts longer than
+/// [`POLL_MAX_TIMEOUT`].
+///
+/// If `events` is not empty this will do nothing, not even check the timeout.
 fn poll(
     sources: &mut popol::Sources<StreamType>,
     events: &mut Vec<popol::Event<StreamType>>,
     timeout: &Timeout,
 ) -> Result<(), SubcommandError> {
-    // FIXME? handle EINTR? I don’t think it will come up unless we have a
-    // signal handler set.
-    let timeout = timeout.start();
+    // If this is an overall run timeout, starting it again will just return a
+    // clone of it.
+    let poll_timeout = timeout.start();
+
     while events.is_empty() {
-        if let Some(expired) = timeout.check_expired() {
-            return timeout_fail(&timeout, &expired);
+        if let Some(expired) = poll_timeout.check_expired() {
+            return Err(timeout_error(timeout, expired));
         }
 
-        let call_timeout = cmp::min(&timeout, &POLL_MAX_TIMEOUT).timeout();
+        // If poll_timeout is greater than POLL_MAX_TIMEOUT we may have to call
+        // poll() multiple times before we reach the real timeout.
+        let call_timeout = cmp::min(&poll_timeout, &POLL_MAX_TIMEOUT).timeout();
+
+        // FIXME? handle EINTR? I don’t think it will come up unless we have a
+        // signal handler set.
         if let Err(error) = sources.poll(events, call_timeout) {
-            // Timeouts are handled at the top of the loop. If we get a timeout
+            // Timeouts are checked at the top of the loop. If we get a timeout
             // error here, we ignore it as long as a timeout was specified. If
             // poll() for some reason returned a timeout error before the
             // timeout actually elapsed we just call poll() again.
-            if call_timeout.is_some() && error.kind() == io::ErrorKind::TimedOut
+            if call_timeout.is_none() || error.kind() != io::ErrorKind::TimedOut
             {
-                continue;
+                // Return all other errors.
+                return Err(SubcommandError::Poll { error });
             }
-
-            // Return all other errors.
-            return Err(SubcommandError::Poll { error });
         }
     }
 
     Ok(())
 }
 
-/// Display a message about the timeout expiring.
+/// Return the correct error about the timeout expiring.
 ///
 /// `timeout` is the original timeout; `expired` is the timeout object after it
 /// expired. You can determine the type of timeout based on the variant of
 /// `timeout`, since the idle timeout is always `Timeout::Future` or
 /// `Timeout::Never` and the overall run timeout is always `Timeout::Pending`
 /// or `Timeout::Never`.
-fn timeout_fail(
-    timeout: &Timeout,
-    expired: &Timeout,
-) -> Result<(), SubcommandError> {
+fn timeout_error(timeout: &Timeout, expired: Timeout) -> SubcommandError {
     match &timeout {
         Timeout::Never => panic!("timed out when no timeout was set"),
         Timeout::Expired { .. } => panic!("did not expect Timeout::Expired"),
-        Timeout::Future { .. } => Err(SubcommandError::IdleTimeout {
-            timeout: expired.clone(),
-        }),
-        Timeout::Pending { .. } => Err(SubcommandError::RunTimeout {
-            timeout: expired.clone(),
-        }),
+        Timeout::Future { .. } => {
+            SubcommandError::IdleTimeout { timeout: expired }
+        }
+        Timeout::Pending { .. } => {
+            SubcommandError::RunTimeout { timeout: expired }
+        }
     }
 }
