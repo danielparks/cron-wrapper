@@ -22,15 +22,15 @@ const POLL_MAX_TIMEOUT: Timeout = Timeout::Future {
 /// Used to indicate either stderr or stdout on the child process.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum StreamType {
-    Out,
-    Err,
+    Stdout,
+    Stderr,
 }
 
 impl fmt::Display for StreamType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Out => write!(f, "stdout"),
-            Self::Err => write!(f, "stderr"),
+            Self::Stdout => write!(f, "stdout"),
+            Self::Stderr => write!(f, "stderr"),
         }
     }
 }
@@ -88,8 +88,8 @@ pub struct Child {
     idle_timeout: Timeout,
     sources: popol::Sources<StreamType>,
     events: VecDeque<popol::Event<StreamType>>,
-    out: process::ChildStdout,
-    err: process::ChildStderr,
+    stdout: process::ChildStdout,
+    stderr: process::ChildStderr,
     buffer: Vec<u8>,
     state: State,
 }
@@ -114,33 +114,33 @@ impl Command {
             .spawn()
             .map_err(|error| Error::Spawn { command, error })?;
 
-        let out = process.stdout.take().expect("process.stdout is None");
-        let err = process.stderr.take().expect("process.stderr is None");
+        let stdout = process.stdout.take().expect("process.stdout is None");
+        let stderr = process.stderr.take().expect("process.stderr is None");
         let mut child = Child {
             process,
             run_timeout,
             idle_timeout,
+            stdout,
+            stderr,
             sources: popol::Sources::with_capacity(2),
             events: VecDeque::with_capacity(2),
-            out,
-            err,
             buffer: vec![0; self.buffer_size],
             state: State::Waiting,
         };
 
-        set_nonblocking(&child.out, true)
+        set_nonblocking(&child.stdout, true)
             .expect("child stdout cannot be set to non-blocking");
         child.sources.register(
-            StreamType::Out,
-            &child.out,
+            StreamType::Stdout,
+            &child.stdout,
             popol::interest::READ,
         );
 
-        set_nonblocking(&child.err, true)
+        set_nonblocking(&child.stderr, true)
             .expect("child stderr cannot be set to non-blocking");
         child.sources.register(
-            StreamType::Err,
-            &child.err,
+            StreamType::Stderr,
+            &child.stderr,
             popol::interest::READ,
         );
 
@@ -203,8 +203,8 @@ impl Child {
         self.state = State::Reading(stream);
 
         let result = match stream {
-            StreamType::Out => self.out.read(&mut self.buffer),
-            StreamType::Err => self.err.read(&mut self.buffer),
+            StreamType::Stdout => self.stdout.read(&mut self.buffer),
+            StreamType::Stderr => self.stderr.read(&mut self.buffer),
         };
 
         let count = match result {
@@ -238,8 +238,8 @@ impl Child {
 
         let output = self.buffer[..count].to_vec();
         Some(match stream {
-            StreamType::Out => Event::Stdout(output),
-            StreamType::Err => Event::Stderr(output),
+            StreamType::Stdout => Event::Stdout(output),
+            StreamType::Stderr => Event::Stderr(output),
         })
     }
 }
