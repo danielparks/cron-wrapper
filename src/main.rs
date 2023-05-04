@@ -28,59 +28,6 @@ fn main() {
     }
 }
 
-struct Handler {
-    pub out: PausableWriter<std::io::Stdout>,
-    pub params: Params,
-}
-
-impl command::Handler for Handler {
-    fn on_out(&mut self, output: &[u8]) -> anyhow::Result<()> {
-        if output.is_empty() {
-            return Ok(());
-        }
-
-        if !log_enabled!(Trace) {
-            self.out.write_all(output)?;
-            self.out.flush()?; // In case there wasn’t a newline.
-        }
-
-        Ok(())
-    }
-
-    fn on_err(&mut self, output: &[u8]) -> anyhow::Result<()> {
-        if output.is_empty() {
-            return Ok(());
-        }
-
-        if self.params.on_error && self.out.is_paused() {
-            debug!("--on-error enabled: unpausing output");
-            self.out.unpause()?;
-        }
-
-        if !log_enabled!(Trace) {
-            self.out.write_all(output)?;
-            self.out.flush()?; // In case there wasn’t a newline.
-        }
-
-        Ok(())
-    }
-
-    fn on_exit(&mut self, status: process::ExitStatus) -> anyhow::Result<()> {
-        let code = wait_status_to_code(status).expect("no exit code for child");
-        info!(
-            "Exit with {code}: {:?} {:?}",
-            self.params.command, self.params.args
-        );
-
-        if code != 0 && self.params.on_fail && self.out.is_paused() {
-            debug!("--on-fail enabled: unpausing output");
-            self.out.unpause()?;
-        }
-
-        process::exit(code);
-    }
-}
-
 fn cli(params: Params) -> anyhow::Result<()> {
     init_logging(&params)?;
 
@@ -97,11 +44,50 @@ fn cli(params: Params) -> anyhow::Result<()> {
         run_timeout: params.run_timeout.into(),
         idle_timeout: params.idle_timeout.into(),
         buffer_size: params.buffer_size,
-    };
-    let handler = Handler { out, params };
-    child.run(handler)?;
+    }
+    .start()?;
 
-    panic!("how did I get here?");
+    for event in child {
+        match event {
+            command::Event::Stdout(ref buffer) => {
+                if !buffer.is_empty() && !log_enabled!(Trace) {
+                    out.write_all(buffer)?;
+                    out.flush()?; // In case there wasn’t a newline.
+                }
+            }
+            command::Event::Stderr(ref buffer) => {
+                if !buffer.is_empty() && !log_enabled!(Trace) {
+                    if params.on_error && out.is_paused() {
+                        debug!("--on-error enabled: unpausing output");
+                        out.unpause()?;
+                    }
+
+                    out.write_all(buffer)?;
+                    out.flush()?; // In case there wasn’t a newline.
+                }
+            }
+            command::Event::Exit(status) => {
+                let code = wait_status_to_code(status)
+                    .expect("no exit code for child");
+                info!(
+                    "Exit with {code}: {:?} {:?}",
+                    params.command, params.args
+                );
+
+                if code != 0 && params.on_fail && out.is_paused() {
+                    debug!("--on-fail enabled: unpausing output");
+                    out.unpause()?;
+                }
+
+                process::exit(code);
+            }
+            command::Event::Error(error) => {
+                return Err(error.into());
+            }
+        }
+    }
+
+    unreachable!();
 }
 
 fn init_logging(params: &Params) -> anyhow::Result<()> {
