@@ -20,7 +20,7 @@ const POLL_MAX_TIMEOUT: Timeout = Timeout::Future {
 };
 
 /// Used to indicate either stderr or stdout on the child process.
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum StreamType {
     Stdout,
     Stderr,
@@ -36,7 +36,7 @@ impl fmt::Display for StreamType {
 }
 
 /// Errors that running a command might raise.
-#[derive(Error, Debug)]
+#[derive(Debug, Error)]
 pub enum Error {
     #[error("Could not run command {command:?}: {error}")]
     Spawn { command: OsString, error: io::Error },
@@ -57,6 +57,7 @@ pub enum Error {
     RunTimeout { timeout: Timeout },
 }
 
+/// A command to run.
 #[derive(Clone, Debug)]
 pub struct Command {
     pub command: OsString,
@@ -82,6 +83,7 @@ pub enum Event {
     Exit(process::ExitStatus),
 }
 
+/// A running [`Command`].
 #[derive(Debug)]
 pub struct Child {
     process: process::Child,
@@ -252,14 +254,16 @@ impl Iterator for Child {
         // FIXME? this sometimes messes up the order if stderr and stdout are
         // used in the same line. Not sure this is possible to fix.
 
+        // Are we still reading?
         if let State::Reading(stream) = self.state {
-            // Try reading again. This will reset self.state if it returns None.
+            // This will reset self.state if it returns None.
             if let Some(my_event) = self.read(stream) {
                 return Some(my_event);
             }
         }
 
         loop {
+            // Process events even if all sources have been removed.
             while let Some(event) = self.events.pop_front() {
                 trace!("{event:?}");
 
