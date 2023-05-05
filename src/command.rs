@@ -215,7 +215,7 @@ impl Child {
             Err(error) => {
                 if error.kind() == io::ErrorKind::WouldBlock {
                     // Done reading.
-                    trace!("io::ErrorKind::WouldBlock");
+                    trace!("{stream:?}: io::ErrorKind::WouldBlock");
                     self.state = State::Polling;
                     return None;
                 } else {
