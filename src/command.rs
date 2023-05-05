@@ -105,10 +105,7 @@ impl Command {
         let idle_timeout = self.idle_timeout.clone();
 
         info!("Start: {command:?} {args:?}");
-        debug!(
-            "run timeout {run_timeout}, idle timeout {}",
-            self.idle_timeout
-        );
+        debug!("run timeout {run_timeout}, idle timeout {idle_timeout}");
 
         let mut process = process::Command::new(&command)
             .args(&args)
@@ -117,37 +114,29 @@ impl Command {
             .spawn()
             .map_err(|error| Error::Spawn { command, error })?;
 
+        let mut sources = popol::Sources::with_capacity(2);
+
         let stdout = process.stdout.take().expect("process.stdout is None");
+        set_nonblocking(&stdout, true)
+            .expect("child stdout cannot be set to non-blocking");
+        sources.register(StreamType::Stdout, &stdout, popol::interest::READ);
+
         let stderr = process.stderr.take().expect("process.stderr is None");
-        let mut child = Child {
+        set_nonblocking(&stderr, true)
+            .expect("child stderr cannot be set to non-blocking");
+        sources.register(StreamType::Stderr, &stderr, popol::interest::READ);
+
+        Ok(Child {
             process,
             run_timeout,
             idle_timeout,
             stdout,
             stderr,
-            sources: popol::Sources::with_capacity(2),
+            sources,
             events: VecDeque::with_capacity(2),
             buffer: vec![0; self.buffer_size],
             state: State::Polling,
-        };
-
-        set_nonblocking(&child.stdout, true)
-            .expect("child stdout cannot be set to non-blocking");
-        child.sources.register(
-            StreamType::Stdout,
-            &child.stdout,
-            popol::interest::READ,
-        );
-
-        set_nonblocking(&child.stderr, true)
-            .expect("child stderr cannot be set to non-blocking");
-        child.sources.register(
-            StreamType::Stderr,
-            &child.stderr,
-            popol::interest::READ,
-        );
-
-        Ok(child)
+        })
     }
 }
 
