@@ -33,7 +33,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
         out.unpause()?;
     }
 
-    let child = command::Command {
+    let mut child = command::Command {
         command: params.command.clone(),
         args: params.args.clone(),
         run_timeout: params.run_timeout.into(),
@@ -42,7 +42,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
     }
     .start()?;
 
-    for event in child {
+    while let Some(event) = child.next() {
         match event {
             command::Event::Stdout(ref buffer) => {
                 if !buffer.is_empty() && !log_enabled!(Trace) {
@@ -82,7 +82,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
         }
     }
 
-    unreachable!();
+    unreachable!("should have exited when child did");
 }
 
 fn init_logging(params: &Params) -> anyhow::Result<()> {
