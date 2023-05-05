@@ -38,26 +38,27 @@ fn cli(params: Params) -> anyhow::Result<()> {
         args: params.args.clone(),
         run_timeout: params.run_timeout.into(),
         idle_timeout: params.idle_timeout.into(),
-        buffer_size: params.buffer_size,
     }
     .start()?;
 
-    while let Some(event) = child.next() {
+    let mut buffer = vec![0; params.buffer_size];
+
+    while let Some(event) = child.next(&mut buffer) {
         match event {
-            command::Event::Stdout(ref buffer) => {
-                if !buffer.is_empty() && !log_enabled!(Trace) {
-                    out.write_all(buffer)?;
+            command::Event::Stdout(output) => {
+                if !output.is_empty() && !log_enabled!(Trace) {
+                    out.write_all(output)?;
                     out.flush()?; // In case there wasn’t a newline.
                 }
             }
-            command::Event::Stderr(ref buffer) => {
-                if !buffer.is_empty() && !log_enabled!(Trace) {
+            command::Event::Stderr(output) => {
+                if !output.is_empty() && !log_enabled!(Trace) {
                     if params.on_error && out.is_paused() {
                         debug!("--on-error enabled: unpausing output");
                         out.unpause()?;
                     }
 
-                    out.write_all(buffer)?;
+                    out.write_all(output)?;
                     out.flush()?; // In case there wasn’t a newline.
                 }
             }

@@ -68,7 +68,6 @@ pub enum Error {
 ///     args: vec!["-l".into(), "/".into()],
 ///     run_timeout: Timeout::Never,
 ///     idle_timeout: Timeout::Never,
-///     buffer_size: 4096,
 /// }.start().unwrap();
 /// ```
 #[derive(Clone, Debug)]
@@ -84,9 +83,6 @@ pub struct Command {
 
     /// Timeout for waiting for output from the command.
     pub idle_timeout: Timeout,
-
-    /// Size of the buffer for reads in bytes, e.g. `4096`.
-    pub buffer_size: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -98,12 +94,18 @@ enum State {
 
 /// A child process did something.
 #[derive(Debug)]
-pub enum Event {
-    /// Output on child’s stdout.
-    Stdout(Vec<u8>),
+pub enum Event<'a> {
+    /// There was output on the child’s stdout.
+    ///
+    /// Note that the byte slice in this event is only valid until the next call
+    /// to [`Child::next_event()`].
+    Stdout(&'a [u8]),
 
-    /// Output on child’s stderr.
-    Stderr(Vec<u8>),
+    /// There was output on the child’s stderr.
+    ///
+    /// Note that the byte slice in this event is only valid until the next call
+    /// to [`Child::next()`].
+    Stderr(&'a [u8]),
 
     /// The child exited.
     Exit(process::ExitStatus),
@@ -122,7 +124,6 @@ pub struct Child {
     events: VecDeque<popol::Event<StreamType>>,
     stdout: process::ChildStdout,
     stderr: process::ChildStderr,
-    buffer: Vec<u8>,
     state: State,
 }
 
@@ -164,7 +165,6 @@ impl Command {
             stderr,
             sources,
             events: VecDeque::with_capacity(2),
-            buffer: vec![0; self.buffer_size],
             state: State::Polling,
         })
     }
@@ -175,15 +175,23 @@ impl Child {
     ///
     /// This works like an iterator, but the iterator interface cannot return
     /// references to itself.
-    pub fn next(&mut self) -> Option<Event> {
+    pub fn next<'a>(&mut self, buffer: &'a mut [u8]) -> Option<Event<'a>> {
         // FIXME? this sometimes messes up the order if stderr and stdout are
         // used in the same line. Not sure this is possible to fix.
 
         // Are we still reading?
         if let State::Reading(stream) = self.state {
-            // This will reset self.state if it returns None.
-            if let Some(my_event) = self.read(stream) {
-                return Some(my_event);
+            match self.read(stream, buffer) {
+                Ok(0) => {} // FIXME?
+                Ok(length) => {
+                    return Some(match stream {
+                        StreamType::Stdout => Event::Stdout(&buffer[..length]),
+                        StreamType::Stderr => Event::Stderr(&buffer[..length]),
+                    });
+                }
+                Err(error) => {
+                    return Some(Event::Error(error));
+                }
             }
         }
 
@@ -198,8 +206,21 @@ impl Child {
                 }
 
                 if event.is_readable() {
-                    if let Some(my_event) = self.read(event.key) {
-                        return Some(my_event);
+                    match self.read(event.key, buffer) {
+                        Ok(0) => {} // FIXME?
+                        Ok(length) => {
+                            return Some(match event.key {
+                                StreamType::Stdout => {
+                                    Event::Stdout(&buffer[..length])
+                                }
+                                StreamType::Stderr => {
+                                    Event::Stderr(&buffer[..length])
+                                }
+                            });
+                        }
+                        Err(error) => {
+                            return Some(Event::Error(error));
+                        }
                     }
                 }
             }
@@ -272,47 +293,55 @@ impl Child {
         Ok(())
     }
 
-    fn read(&mut self, stream: StreamType) -> Option<Event> {
-        // Remember which stream we’re reading in case the buffer fills up and
-        // we need to read again.
-        self.state = State::Reading(stream);
-
+    /// Read from the child’s stdout or stderr.
+    ///
+    /// Fills `buffer` and returns the number of bytes written or an error.
+    fn read(
+        &mut self,
+        stream: StreamType,
+        buffer: &mut [u8],
+    ) -> Result<usize, Error> {
         let result = match stream {
-            StreamType::Stdout => self.stdout.read(&mut self.buffer),
-            StreamType::Stderr => self.stderr.read(&mut self.buffer),
+            StreamType::Stdout => self.stdout.read(buffer),
+            StreamType::Stderr => self.stderr.read(buffer),
         };
 
+        // FIXME treat count == 0 like io::ErrorKind::WouldBlock?
         let count = match result {
             Ok(count) => count,
             Err(error) => {
+                // FIXME EINTR?
                 if error.kind() == io::ErrorKind::WouldBlock {
                     // Done reading.
                     trace!("{stream:?}: io::ErrorKind::WouldBlock");
                     self.state = State::Polling;
-                    return None;
+                    return Ok(0);
                 } else {
-                    return Some(Event::Error(Error::Read { error, stream }));
+                    // FIXME? should we set state?
+                    self.state = State::Reading(stream);
+                    return Err(Error::Read { error, stream });
                 }
             }
         };
 
-        let output = &self.buffer[..count];
-        trace!("{stream:?}: read {count} bytes: {:?}", output.as_bstr());
+        trace!(
+            "{stream:?}: read {count} bytes: {:?}",
+            &buffer[..count].as_bstr()
+        );
 
-        if count < self.buffer.len() {
-            // read() didn’t fill the buffer.
-            //
-            // We could read again and get either io::ErrorKind::WouldBlock or 0
-            // bytes, but I think this check makes it more likely the output
-            // ordering is correct. A partial read indicates that the stream had
-            // stopped, so we should check to see if another stream is ready.
+        if count == buffer.len() {
+            // read() filled the buffer so there’s likely more to read.
+            self.state = State::Reading(stream);
+        } else {
+            // read() didn’t fill the buffer, so we should check any other
+            // events poll() returned and then try poll() again. We could try
+            // reading again, but if there was already data available on another
+            // stream and then data was added to the current stream then we
+            // would read it out of order.
             self.state = State::Polling;
         }
 
-        Some(match stream {
-            StreamType::Stdout => Event::Stdout(output.to_vec()),
-            StreamType::Stderr => Event::Stderr(output.to_vec()),
-        })
+        Ok(count)
     }
 }
 
