@@ -66,10 +66,11 @@ pub struct Command {
     pub buffer_size: usize,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum State {
-    Waiting,
+    Polling,
     Reading(StreamType),
+    Exiting,
 }
 
 /// A child process did something.
@@ -125,7 +126,7 @@ impl Command {
             sources: popol::Sources::with_capacity(2),
             events: VecDeque::with_capacity(2),
             buffer: vec![0; self.buffer_size],
-            state: State::Waiting,
+            state: State::Polling,
         };
 
         set_nonblocking(&child.stdout, true)
@@ -213,7 +214,7 @@ impl Child {
                 if error.kind() == io::ErrorKind::WouldBlock {
                     // Done reading.
                     trace!("io::ErrorKind::WouldBlock");
-                    self.state = State::Waiting;
+                    self.state = State::Polling;
                     return None;
                 } else {
                     return Some(Event::Error(Error::Read { error, stream }));
@@ -233,7 +234,7 @@ impl Child {
             // bytes, but I think this check makes it more likely the output
             // ordering is correct. A partial read indicates that the stream had
             // stopped, so we should check to see if another stream is ready.
-            self.state = State::Waiting;
+            self.state = State::Polling;
         }
 
         let output = self.buffer[..count].to_vec();
@@ -275,7 +276,8 @@ impl Iterator for Child {
             }
 
             if self.sources.is_empty() {
-                // All streams have closed. Time to wait for the child to exit.
+                // All streams have closed. Move on to waiting on child to exit.
+                self.state = State::Exiting;
                 break;
             }
 
@@ -284,10 +286,13 @@ impl Iterator for Child {
             }
         }
 
-        // FIXME what if they call next() after this?
-        Some(Event::Exit(
-            self.process.wait().expect("failed to wait on child"),
-        ))
+        if self.state == State::Exiting {
+            Some(Event::Exit(
+                self.process.wait().expect("failed to wait on child"),
+            ))
+        } else {
+            None
+        }
     }
 }
 
