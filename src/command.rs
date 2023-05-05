@@ -98,11 +98,12 @@ pub struct Child {
 }
 
 impl Command {
+    /// Run the command and produce a [`Child`].
     pub fn start(self) -> Result<Child, Error> {
         let command = self.command;
         let args = self.args;
         let run_timeout = self.run_timeout.start();
-        let idle_timeout = self.idle_timeout.clone();
+        let idle_timeout = self.idle_timeout;
 
         info!("Start: {command:?} {args:?}");
         debug!("run timeout {run_timeout}, idle timeout {idle_timeout}");
