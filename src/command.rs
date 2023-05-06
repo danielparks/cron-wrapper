@@ -94,6 +94,7 @@ enum State {
     Polling,
     Reading(StreamType),
     Exiting,
+    Exited,
 }
 
 /// A child process did something.
@@ -211,7 +212,7 @@ impl Child {
             }
         }
 
-        loop {
+        while self.state == State::Polling {
             // Process events even if all sources have been removed.
             while let Some(event) = self.events.pop_front() {
                 trace!("{event:?}");
@@ -249,11 +250,13 @@ impl Child {
         }
 
         if self.state == State::Exiting {
-            Some(Event::Exit(
-                self.process.wait().expect("failed to wait on child"),
-            ))
-        } else {
+            let status = self.process.wait().expect("failed to wait on child");
+            self.state = State::Exited;
+            Some(Event::Exit(status))
+        } else if self.state == State::Exited {
             None
+        } else {
+            unreachable!("state is {:?}", self.state);
         }
     }
 
@@ -366,5 +369,46 @@ fn timeout_error(timeout: &Timeout, expired: Timeout) -> Error {
         Timeout::Expired { .. } => panic!("did not expect Timeout::Expired"),
         Timeout::Future { .. } => Error::IdleTimeout { timeout: expired },
         Timeout::Pending { .. } => Error::RunTimeout { timeout: expired },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use assert2::check;
+
+    #[test]
+    fn next_after_exit() {
+        let mut child = Command {
+            command: "/bin/echo".into(),
+            args: vec!["ok".into()],
+            run_timeout: Timeout::Never,
+            idle_timeout: Timeout::Never,
+            buffer_size: 4096,
+        }
+        .start()
+        .unwrap();
+
+        let mut count = 0;
+        while let Some(event) = child.next_event() {
+            match event {
+                Event::Stdout(output) => {
+                    check!(output == b"ok\n");
+                    count += 1;
+                }
+                Event::Stderr(output) => {
+                    panic!("unexpected stderr: {output:?}")
+                }
+                Event::Error(error) => panic!("unexpected error: {error:?}"),
+                Event::Exit(status) => {
+                    check!(status.success());
+                }
+            }
+        }
+
+        check!(count == 1, "expected only 1 line of output");
+
+        check!(child.next_event().is_none());
+        check!(child.next_event().is_none());
     }
 }
