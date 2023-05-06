@@ -38,12 +38,11 @@ fn cli(params: Params) -> anyhow::Result<()> {
         args: params.args.clone(),
         run_timeout: params.run_timeout.into(),
         idle_timeout: params.idle_timeout.into(),
+        buffer_size: params.buffer_size,
     }
     .start()?;
 
-    let mut buffer = vec![0; params.buffer_size];
-
-    while let Some(event) = child.next(&mut buffer) {
+    while let Some(event) = child.next_event() {
         match event {
             command::Event::Stdout(output) => {
                 if !output.is_empty() && !log_enabled!(Trace) {

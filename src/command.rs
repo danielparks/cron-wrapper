@@ -68,6 +68,7 @@ pub enum Error {
 ///     args: vec!["-l".into(), "/".into()],
 ///     run_timeout: Timeout::Never,
 ///     idle_timeout: Timeout::Never,
+///     buffer_size: 4096,
 /// }.start().unwrap();
 /// ```
 #[derive(Clone, Debug)]
@@ -83,6 +84,9 @@ pub struct Command {
 
     /// Timeout for waiting for output from the command.
     pub idle_timeout: Timeout,
+
+    /// Size of the buffer for reads in bytes, e.g. `4096`.
+    pub buffer_size: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -135,6 +139,7 @@ pub struct Child {
     stdout: process::ChildStdout,
     stderr: process::ChildStderr,
     state: State,
+    buffer: Vec<u8>,
 }
 
 impl Command {
@@ -176,6 +181,7 @@ impl Command {
             sources,
             events: VecDeque::with_capacity(2),
             state: State::Polling,
+            buffer: vec![0; self.buffer_size],
         })
     }
 }
@@ -185,16 +191,19 @@ impl Child {
     ///
     /// This works like an iterator, but the iterator interface cannot return
     /// references to itself.
-    pub fn next<'a>(&mut self, buffer: &'a mut [u8]) -> Option<Event<'a>> {
+    pub fn next_event(&mut self) -> Option<Event<'_>> {
         // FIXME? this sometimes messes up the order if stderr and stdout are
         // used in the same line. Not sure this is possible to fix.
 
         // Are we still reading?
         if let State::Reading(stream) = self.state {
-            match self.read(stream, buffer) {
+            match self.read(stream) {
                 Ok(0) => {} // FIXME?
                 Ok(length) => {
-                    return Some(Event::make_read(stream, &buffer[..length]));
+                    return Some(Event::make_read(
+                        stream,
+                        &self.buffer[..length],
+                    ));
                 }
                 Err(error) => {
                     return Some(Event::Error(error));
@@ -213,12 +222,12 @@ impl Child {
                 }
 
                 if event.is_readable() {
-                    match self.read(event.key, buffer) {
+                    match self.read(event.key) {
                         Ok(0) => {} // FIXME?
                         Ok(length) => {
                             return Some(Event::make_read(
                                 event.key,
-                                &buffer[..length],
+                                &self.buffer[..length],
                             ));
                         }
                         Err(error) => {
@@ -298,15 +307,11 @@ impl Child {
 
     /// Read from the child’s stdout or stderr.
     ///
-    /// Fills `buffer` and returns the number of bytes written or an error.
-    fn read(
-        &mut self,
-        stream: StreamType,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
+    /// Fills `self.buffer` and returns the number of bytes written or an error.
+    fn read(&mut self, stream: StreamType) -> Result<usize, Error> {
         let result = match stream {
-            StreamType::Stdout => self.stdout.read(buffer),
-            StreamType::Stderr => self.stderr.read(buffer),
+            StreamType::Stdout => self.stdout.read(&mut self.buffer),
+            StreamType::Stderr => self.stderr.read(&mut self.buffer),
         };
 
         // FIXME treat count == 0 like io::ErrorKind::WouldBlock?
@@ -329,10 +334,10 @@ impl Child {
 
         trace!(
             "{stream:?}: read {count} bytes: {:?}",
-            &buffer[..count].as_bstr()
+            &self.buffer[..count].as_bstr()
         );
 
-        if count == buffer.len() {
+        if count == self.buffer.len() {
             // read() filled the buffer so there’s likely more to read.
             self.state = State::Reading(stream);
         } else {
