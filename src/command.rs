@@ -98,18 +98,34 @@ enum State {
 
 /// A child process did something.
 #[derive(Debug)]
-pub enum Event {
-    /// Output on child’s stdout.
-    Stdout(Vec<u8>),
+pub enum Event<'a> {
+    /// There was output on the child’s stdout.
+    ///
+    /// Note that the byte slice in this event is only valid until the next call
+    /// to [`Child::next_event()`].
+    Stdout(&'a [u8]),
 
-    /// Output on child’s stderr.
-    Stderr(Vec<u8>),
+    /// There was output on the child’s stderr.
+    ///
+    /// Note that the byte slice in this event is only valid until the next call
+    /// to [`Child::next()`].
+    Stderr(&'a [u8]),
 
     /// The child exited.
     Exit(process::ExitStatus),
 
     /// An error reading from the child.
     Error(Error),
+}
+
+impl<'a> Event<'a> {
+    /// Make the correct type of read event given a [`StreamType`].
+    fn make_read(stream: StreamType, output: &'a [u8]) -> Self {
+        match stream {
+            StreamType::Stdout => Self::Stdout(output),
+            StreamType::Stderr => Self::Stderr(output),
+        }
+    }
 }
 
 /// A running [`Command`].
@@ -122,8 +138,8 @@ pub struct Child {
     events: VecDeque<popol::Event<StreamType>>,
     stdout: process::ChildStdout,
     stderr: process::ChildStderr,
-    buffer: Vec<u8>,
     state: State,
+    buffer: Vec<u8>,
 }
 
 impl Command {
@@ -164,13 +180,83 @@ impl Command {
             stderr,
             sources,
             events: VecDeque::with_capacity(2),
-            buffer: vec![0; self.buffer_size],
             state: State::Polling,
+            buffer: vec![0; self.buffer_size],
         })
     }
 }
 
 impl Child {
+    /// Get next event from child (will wait).
+    ///
+    /// This works like an iterator, but the iterator interface cannot return
+    /// references to itself.
+    pub fn next_event(&mut self) -> Option<Event<'_>> {
+        // FIXME? this sometimes messes up the order if stderr and stdout are
+        // used in the same line. Not sure this is possible to fix.
+
+        // Are we still reading?
+        if let State::Reading(stream) = self.state {
+            match self.read(stream) {
+                Ok(0) => {} // FIXME?
+                Ok(length) => {
+                    return Some(Event::make_read(
+                        stream,
+                        &self.buffer[..length],
+                    ));
+                }
+                Err(error) => {
+                    return Some(Event::Error(error));
+                }
+            }
+        }
+
+        loop {
+            // Process events even if all sources have been removed.
+            while let Some(event) = self.events.pop_front() {
+                trace!("{event:?}");
+
+                if event.is_hangup() {
+                    // Remove the stream from poll.
+                    self.sources.unregister(&event.key);
+                }
+
+                if event.is_readable() {
+                    match self.read(event.key) {
+                        Ok(0) => {} // FIXME?
+                        Ok(length) => {
+                            return Some(Event::make_read(
+                                event.key,
+                                &self.buffer[..length],
+                            ));
+                        }
+                        Err(error) => {
+                            return Some(Event::Error(error));
+                        }
+                    }
+                }
+            }
+
+            if self.sources.is_empty() {
+                // All streams have closed. Move on to waiting on child to exit.
+                self.state = State::Exiting;
+                break;
+            }
+
+            if let Err(error) = self.poll() {
+                return Some(Event::Error(error));
+            }
+        }
+
+        if self.state == State::Exiting {
+            Some(Event::Exit(
+                self.process.wait().expect("failed to wait on child"),
+            ))
+        } else {
+            None
+        }
+    }
+
     /// Wait for input.
     ///
     /// This wrapper around [`popol::Sources::poll()`] handles timeouts longer
@@ -219,103 +305,51 @@ impl Child {
         Ok(())
     }
 
-    fn read(&mut self, stream: StreamType) -> Option<Event> {
-        // Remember which stream we’re reading in case the buffer fills up and
-        // we need to read again.
-        self.state = State::Reading(stream);
-
+    /// Read from the child’s stdout or stderr.
+    ///
+    /// Fills `self.buffer` and returns the number of bytes written or an error.
+    fn read(&mut self, stream: StreamType) -> Result<usize, Error> {
         let result = match stream {
             StreamType::Stdout => self.stdout.read(&mut self.buffer),
             StreamType::Stderr => self.stderr.read(&mut self.buffer),
         };
 
+        // FIXME treat count == 0 like io::ErrorKind::WouldBlock?
         let count = match result {
             Ok(count) => count,
             Err(error) => {
+                // FIXME EINTR?
                 if error.kind() == io::ErrorKind::WouldBlock {
                     // Done reading.
                     trace!("{stream:?}: io::ErrorKind::WouldBlock");
                     self.state = State::Polling;
-                    return None;
+                    return Ok(0);
                 } else {
-                    return Some(Event::Error(Error::Read { error, stream }));
+                    // FIXME? should we set state?
+                    self.state = State::Reading(stream);
+                    return Err(Error::Read { error, stream });
                 }
             }
         };
 
         trace!(
             "{stream:?}: read {count} bytes: {:?}",
-            self.buffer[..count].as_bstr(),
+            &self.buffer[..count].as_bstr()
         );
 
-        if count < self.buffer.len() {
-            // read() didn’t fill the buffer.
-            //
-            // We could read again and get either io::ErrorKind::WouldBlock or 0
-            // bytes, but I think this check makes it more likely the output
-            // ordering is correct. A partial read indicates that the stream had
-            // stopped, so we should check to see if another stream is ready.
+        if count == self.buffer.len() {
+            // read() filled the buffer so there’s likely more to read.
+            self.state = State::Reading(stream);
+        } else {
+            // read() didn’t fill the buffer, so we should check any other
+            // events poll() returned and then try poll() again. We could try
+            // reading again, but if there was already data available on another
+            // stream and then data was added to the current stream then we
+            // would read it out of order.
             self.state = State::Polling;
         }
 
-        let output = self.buffer[..count].to_vec();
-        Some(match stream {
-            StreamType::Stdout => Event::Stdout(output),
-            StreamType::Stderr => Event::Stderr(output),
-        })
-    }
-}
-
-impl Iterator for Child {
-    type Item = Event;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        // FIXME? this sometimes messes up the order if stderr and stdout are
-        // used in the same line. Not sure this is possible to fix.
-
-        // Are we still reading?
-        if let State::Reading(stream) = self.state {
-            // This will reset self.state if it returns None.
-            if let Some(my_event) = self.read(stream) {
-                return Some(my_event);
-            }
-        }
-
-        loop {
-            // Process events even if all sources have been removed.
-            while let Some(event) = self.events.pop_front() {
-                trace!("{event:?}");
-
-                if event.is_hangup() {
-                    // Remove the stream from poll.
-                    self.sources.unregister(&event.key);
-                }
-
-                if event.is_readable() {
-                    if let Some(my_event) = self.read(event.key) {
-                        return Some(my_event);
-                    }
-                }
-            }
-
-            if self.sources.is_empty() {
-                // All streams have closed. Move on to waiting on child to exit.
-                self.state = State::Exiting;
-                break;
-            }
-
-            if let Err(error) = self.poll() {
-                return Some(Event::Error(error));
-            }
-        }
-
-        if self.state == State::Exiting {
-            Some(Event::Exit(
-                self.process.wait().expect("failed to wait on child"),
-            ))
-        } else {
-            None
-        }
+        Ok(count)
     }
 }
 

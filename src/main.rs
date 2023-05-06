@@ -33,7 +33,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
         out.unpause()?;
     }
 
-    let child = command::Command {
+    let mut child = command::Command {
         command: params.command.clone(),
         args: params.args.clone(),
         run_timeout: params.run_timeout.into(),
@@ -42,22 +42,22 @@ fn cli(params: Params) -> anyhow::Result<()> {
     }
     .start()?;
 
-    for event in child {
+    while let Some(event) = child.next_event() {
         match event {
-            command::Event::Stdout(ref buffer) => {
-                if !buffer.is_empty() && !log_enabled!(Trace) {
-                    out.write_all(buffer)?;
+            command::Event::Stdout(output) => {
+                if !output.is_empty() && !log_enabled!(Trace) {
+                    out.write_all(output)?;
                     out.flush()?; // In case there wasn’t a newline.
                 }
             }
-            command::Event::Stderr(ref buffer) => {
-                if !buffer.is_empty() && !log_enabled!(Trace) {
+            command::Event::Stderr(output) => {
+                if !output.is_empty() && !log_enabled!(Trace) {
                     if params.on_error && out.is_paused() {
                         debug!("--on-error enabled: unpausing output");
                         out.unpause()?;
                     }
 
-                    out.write_all(buffer)?;
+                    out.write_all(output)?;
                     out.flush()?; // In case there wasn’t a newline.
                 }
             }
@@ -82,7 +82,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
         }
     }
 
-    unreachable!();
+    unreachable!("should have exited when child did");
 }
 
 fn init_logging(params: &Params) -> anyhow::Result<()> {
