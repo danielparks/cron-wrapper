@@ -114,6 +114,16 @@ pub enum Event<'a> {
     Error(Error),
 }
 
+impl<'a> Event<'a> {
+    /// Make the correct type of read event given a [`StreamType`].
+    fn make_read(stream: StreamType, output: &'a [u8]) -> Self {
+        match stream {
+            StreamType::Stdout => Self::Stdout(output),
+            StreamType::Stderr => Self::Stderr(output),
+        }
+    }
+}
+
 /// A running [`Command`].
 #[derive(Debug)]
 pub struct Child {
@@ -184,10 +194,7 @@ impl Child {
             match self.read(stream, buffer) {
                 Ok(0) => {} // FIXME?
                 Ok(length) => {
-                    return Some(match stream {
-                        StreamType::Stdout => Event::Stdout(&buffer[..length]),
-                        StreamType::Stderr => Event::Stderr(&buffer[..length]),
-                    });
+                    return Some(Event::make_read(stream, &buffer[..length]));
                 }
                 Err(error) => {
                     return Some(Event::Error(error));
@@ -209,14 +216,10 @@ impl Child {
                     match self.read(event.key, buffer) {
                         Ok(0) => {} // FIXME?
                         Ok(length) => {
-                            return Some(match event.key {
-                                StreamType::Stdout => {
-                                    Event::Stdout(&buffer[..length])
-                                }
-                                StreamType::Stderr => {
-                                    Event::Stderr(&buffer[..length])
-                                }
-                            });
+                            return Some(Event::make_read(
+                                event.key,
+                                &buffer[..length],
+                            ));
                         }
                         Err(error) => {
                             return Some(Event::Error(error));
