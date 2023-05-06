@@ -2,6 +2,7 @@
 
 use anyhow::bail;
 use clap::Parser;
+use cron_wrapper::{command, pause_writer::PausableWriter};
 use log::Level::Trace;
 use log::{debug, info, log_enabled};
 use simplelog::{
@@ -14,12 +15,6 @@ use std::process;
 
 mod params;
 use params::Params;
-
-mod pause_writer;
-use pause_writer::PausableWriter;
-
-mod command;
-mod timeout;
 
 fn main() {
     if let Err(error) = cli(Params::parse()) {

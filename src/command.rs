@@ -58,12 +58,34 @@ pub enum Error {
 }
 
 /// A command to run.
+///
+/// ```rust
+/// use cron_wrapper::command::Command;
+/// use cron_wrapper::timeout::Timeout;
+///
+/// let child = Command {
+///     command: "/bin/ls".into(),
+///     args: vec!["-l".into(), "/".into()],
+///     run_timeout: Timeout::Never,
+///     idle_timeout: Timeout::Never,
+///     buffer_size: 4096,
+/// }.start().unwrap();
+/// ```
 #[derive(Clone, Debug)]
 pub struct Command {
+    /// The path to the executable to run.
     pub command: OsString,
+
+    /// Arguments to pass, not including the executable’s name.
     pub args: Vec<OsString>,
+
+    /// Timeout for the overall command run.
     pub run_timeout: Timeout,
+
+    /// Timeout for waiting for output from the command.
     pub idle_timeout: Timeout,
+
+    /// Size of the buffer for reads in bytes, e.g. `4096`.
     pub buffer_size: usize,
 }
 
@@ -77,10 +99,17 @@ enum State {
 /// A child process did something.
 #[derive(Debug)]
 pub enum Event {
+    /// Output on child’s stdout.
     Stdout(Vec<u8>),
+
+    /// Output on child’s stderr.
     Stderr(Vec<u8>),
-    Error(Error),
+
+    /// The child exited.
     Exit(process::ExitStatus),
+
+    /// An error reading from the child.
+    Error(Error),
 }
 
 /// A running [`Command`].
