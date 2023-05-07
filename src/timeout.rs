@@ -168,7 +168,7 @@ impl PartialEq for Timeout {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assert2::check;
+    use assert2::{check, let_assert};
     use std::time::Duration;
 
     fn future_timeout(microseconds: u64) -> Timeout {
@@ -301,5 +301,34 @@ mod tests {
         check!(timeout == pending_timeout(5_000, 5_500));
         check!(timeout == future_timeout(0));
         check!(timeout == expired_timeout(5_000));
+    }
+
+    #[test]
+    fn check_expired_timeout_never() {
+        check!(Timeout::Never.check_expired() == None);
+    }
+
+    #[test]
+    fn check_expired_timeout_future() {
+        check!(future_timeout(1_000).check_expired() == None);
+    }
+
+    #[test]
+    fn check_expired_timeout_pending() {
+        check!(pending_timeout(5_000, 1_000).check_expired() == None);
+    }
+
+    #[test]
+    fn check_expired_timeout_pending_overtime() {
+        let_assert!(
+            Some(Timeout::Expired { .. }) =
+                pending_timeout(5_000, 6_000).check_expired()
+        );
+    }
+
+    #[test]
+    fn check_expired_timeout_expired() {
+        let timeout = expired_timeout(5_000);
+        check!(timeout.check_expired() == Some(timeout));
     }
 }

@@ -411,4 +411,84 @@ mod tests {
         check!(child.next_event().is_none());
         check!(child.next_event().is_none());
     }
+
+    #[test]
+    fn next_after_run_timeout() {
+        let mut child = Command {
+            command: "/bin/sleep".into(),
+            args: vec!["1".into()],
+            run_timeout: Duration::from_millis(500).into(),
+            idle_timeout: Timeout::Never,
+            buffer_size: 4096,
+        }
+        .start()
+        .unwrap();
+
+        let mut count = 0;
+        while let Some(event) = child.next_event() {
+            match event {
+                Event::Stdout(output) => {
+                    panic!("unexpected stdout: {output:?}");
+                }
+                Event::Stderr(output) => {
+                    panic!("unexpected stderr: {output:?}");
+                }
+                Event::Error(Error::RunTimeout {
+                    timeout: Timeout::Expired { .. },
+                }) => {
+                    count += 1;
+                    // It should just repeat this forever.
+                    if count > 10 {
+                        break;
+                    }
+                }
+                Event::Error(error) => {
+                    panic!("unexpected error: {error:?}");
+                }
+                Event::Exit(status) => {
+                    panic!("unexpected exit: {status:?}");
+                }
+            }
+        }
+
+        check!(count == 11, "expected 11 timeout errors");
+    }
+
+    #[test]
+    fn next_after_idle_timeout() {
+        let mut child = Command {
+            command: "/bin/sleep".into(),
+            args: vec!["1".into()],
+            run_timeout: Timeout::Never,
+            idle_timeout: Duration::from_millis(10).into(),
+            buffer_size: 4096,
+        }
+        .start()
+        .unwrap();
+
+        while let Some(event) = child.next_event() {
+            match event {
+                Event::Stdout(output) => {
+                    panic!("unexpected stdout: {output:?}");
+                }
+                Event::Stderr(output) => {
+                    panic!("unexpected stderr: {output:?}");
+                }
+                Event::Error(Error::IdleTimeout {
+                    timeout: Timeout::Expired { .. },
+                }) => {
+                    // We'll get this multiple times.
+                }
+                Event::Error(error) => {
+                    panic!("unexpected error: {error:?}");
+                }
+                Event::Exit(status) => {
+                    check!(status.success());
+                }
+            }
+        }
+
+        check!(child.next_event().is_none());
+        check!(child.next_event().is_none());
+    }
 }
