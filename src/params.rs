@@ -46,7 +46,7 @@ pub(crate) struct Params {
     /// Hidden: how large a buffer to use
     #[clap(
         long,
-        default_value_t = 1024,
+        default_value_t = 4096,
         hide = true,
         allow_hyphen_values = true
     )]
