@@ -109,13 +109,13 @@ pub enum Event<'a> {
     /// There was output on the child’s stderr.
     ///
     /// Note that the byte slice in this event is only valid until the next call
-    /// to [`Child::next()`].
+    /// to [`Child::next_event()`].
     Stderr(&'a [u8]),
 
     /// The child exited.
     Exit(process::ExitStatus),
 
-    /// An error reading from the child.
+    /// There was an error reading from the child or waiting for the child.
     Error(Error),
 }
 
@@ -190,8 +190,19 @@ impl Command {
 impl Child {
     /// Get next event from child (will wait).
     ///
-    /// This works like an iterator, but the iterator interface cannot return
+    /// This works like an iterator, but the Iterator trait cannot return
     /// references to itself.
+    ///
+    /// If this returns `Some(Event::Exit(status))` then future calls will
+    /// return `None`.
+    ///
+    /// If an idle timeout is set and this returns
+    /// `Some(Event::Error(Error::IdleTimeout { .. }))` then it may be called
+    /// again as normal (and may return another timeout if it occurs again).
+    ///
+    /// If a run timeout is set and this returns
+    /// `Some(Event::Error(Error::RunTimeout { .. }))` then this will return
+    /// the same thing on every future call.
     pub fn next_event(&mut self) -> Option<Event<'_>> {
         // FIXME? this sometimes messes up the order if stderr and stdout are
         // used in the same line. Not sure this is possible to fix.

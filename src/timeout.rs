@@ -58,6 +58,10 @@ impl Timeout {
     }
 
     /// Has the timeout expired?
+    ///
+    /// Returns:
+    ///   * `None` if the timeout has not expired.
+    ///   * `Some(Timeout::Expired { .. })` if the timeout has expired.
     pub fn check_expired(&self) -> Option<Self> {
         match &self {
             Self::Pending { timeout, start } => {
