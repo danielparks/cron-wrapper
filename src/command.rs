@@ -62,7 +62,7 @@ pub enum Error {
 /// ```rust
 /// use cron_wrapper::command::Command;
 ///
-/// let child = Command::new("/bin/ls", ["-l", "/"]).start().unwrap();
+/// let child = Command::new("/bin/ls", ["-l", "/"]).spawn().unwrap();
 /// ```
 #[derive(Clone, Debug)]
 pub struct Command {
@@ -166,17 +166,34 @@ impl Command {
     }
 
     /// Run the command and produce a [`Child`].
-    pub fn start(self) -> Result<Child, Error> {
-        let command = self.command;
-        let args = self.args;
+    ///
+    /// This may be run multiple times to spawn multiple children.
+    ///
+    /// ```rust
+    /// use assert2::{check, let_assert};
+    /// use cron_wrapper::command::{Command, Event};
+    ///
+    /// let command = Command::new("/bin/sleep", ["0"]);
+    /// let mut child = command.spawn().unwrap();
+    /// let mut child2 = command.spawn().unwrap();
+    ///
+    /// let_assert!(Some(Event::Exit(status)) = child.next_event());
+    /// check!(status.success());
+    ///
+    /// let_assert!(Some(Event::Exit(status)) = child2.next_event());
+    /// check!(status.success());
+    /// ```
+    pub fn spawn(&self) -> Result<Child, Error> {
+        let command = self.command.clone();
+        let args = &self.args;
         let run_timeout = self.run_timeout.start();
-        let idle_timeout = self.idle_timeout;
+        let idle_timeout = self.idle_timeout.clone();
 
         info!("Start: {command:?} {args:?}");
         debug!("run timeout {run_timeout}, idle timeout {idle_timeout}");
 
         let mut process = process::Command::new(&command)
-            .args(&args)
+            .args(args)
             .stdout(process::Stdio::piped())
             .stderr(process::Stdio::piped())
             .spawn()
@@ -418,7 +435,7 @@ mod tests {
             idle_timeout: Timeout::Never,
             buffer_size: 4096,
         }
-        .start()
+        .spawn()
         .unwrap();
 
         let mut count = 0;
@@ -453,7 +470,7 @@ mod tests {
             idle_timeout: Timeout::Never,
             buffer_size: 4096,
         }
-        .start()
+        .spawn()
         .unwrap();
 
         let mut count = 0;
@@ -495,7 +512,7 @@ mod tests {
             idle_timeout: Duration::from_millis(10).into(),
             buffer_size: 4096,
         }
-        .start()
+        .spawn()
         .unwrap();
 
         while let Some(event) = child.next_event() {
