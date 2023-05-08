@@ -165,6 +165,27 @@ impl Command {
         }
     }
 
+    /// Set the command arguments
+    ///
+    /// ```rust
+    /// use assert2::let_assert;
+    /// use cron_wrapper::command::{Command, Event};
+    ///
+    /// let mut child = Command::new("/bin/echo", [])
+    ///     .args(["hello", "world"])
+    ///     .spawn()
+    ///     .unwrap();
+    /// let_assert!(Some(Event::Stdout(b"hello world\n")) = child.next_event());
+    /// ```
+    pub fn args<S, I>(&mut self, args: I) -> &mut Self
+    where
+        S: Into<OsString>,
+        I: IntoIterator<Item = S>,
+    {
+        self.args = args.into_iter().map(|s| s.into()).collect();
+        self
+    }
+
     /// Set the idle timeout
     ///
     /// This sets how long [`Child::next_event()`] waits for input from the
