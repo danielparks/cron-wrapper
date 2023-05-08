@@ -40,7 +40,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
         idle_timeout: params.idle_timeout.into(),
         buffer_size: params.buffer_size,
     }
-    .start()?;
+    .spawn()?;
 
     while let Some(event) = child.next_event() {
         match event {

@@ -62,7 +62,7 @@ pub enum Error {
 /// ```rust
 /// use cron_wrapper::command::Command;
 ///
-/// let child = Command::new("/bin/ls", ["-l", "/"]).start().unwrap();
+/// let child = Command::new("/bin/date", []).spawn().unwrap();
 /// ```
 #[derive(Clone, Debug)]
 pub struct Command {
@@ -146,15 +146,15 @@ impl Command {
     /// use cron_wrapper::timeout::Timeout;
     ///
     /// let command = Command::new("/bin/ls", ["-l", "/"]);
+    /// assert!(command.args == ["-l", "/"]);
     /// assert!(command.run_timeout == Timeout::Never);
     /// assert!(command.idle_timeout == Timeout::Never);
     /// assert!(command.buffer_size == 4096);
     /// ```
-    pub fn new<S, T, I>(command: S, args: I) -> Self
+    pub fn new<S, I>(command: S, args: I) -> Self
     where
         S: Into<OsString>,
-        T: Into<OsString>,
-        I: IntoIterator<Item = T>,
+        I: IntoIterator<Item = S>,
     {
         Command {
             command: command.into(),
@@ -165,18 +165,155 @@ impl Command {
         }
     }
 
+    /// Set the command arguments
+    ///
+    /// ```rust
+    /// use assert2::let_assert;
+    /// use cron_wrapper::command::{Command, Event};
+    ///
+    /// let mut child = Command::new("/bin/echo", [])
+    ///     .args(["hello", "world"])
+    ///     .spawn()
+    ///     .unwrap();
+    /// let_assert!(Some(Event::Stdout(b"hello world\n")) = child.next_event());
+    /// ```
+    pub fn args<S, I>(&mut self, args: I) -> &mut Self
+    where
+        S: Into<OsString>,
+        I: IntoIterator<Item = S>,
+    {
+        self.args = args.into_iter().map(|s| s.into()).collect();
+        self
+    }
+
+    /// Set the idle timeout
+    ///
+    /// This sets how long [`Child::next_event()`] waits for input from the
+    /// child before returning `Some(Event::Error(Error::IdleTimeout { .. }))`.
+    /// When using [`Command::new()`], the default is [`Timeout::Never`].
+    ///
+    /// You may pass this anything that can be converted into a [`Timeout`] with
+    /// `.into()`:
+    ///
+    ///   * [`Timeout::Never`]
+    ///   * [`Timeout::Future`]
+    ///   * [`std::time::Duration`] (will be converted to `Timeout::Future`)
+    ///   * [`None`] (will be converted to `Timeout::Never`)
+    ///
+    /// ```rust
+    /// use assert2::let_assert;
+    /// use cron_wrapper::command::{Command, Error, Event};
+    /// use cron_wrapper::timeout::Timeout;
+    /// use std::time::Duration;
+    ///
+    /// let mut child = Command::new("/bin/sleep", ["1"])
+    ///     .idle_timeout(Duration::from_millis(1))
+    ///     .spawn()
+    ///     .unwrap();
+    /// let_assert!(
+    ///     Some(Event::Error(Error::IdleTimeout { .. })) =
+    ///         child.next_event()
+    /// );
+    /// ```
+    pub fn idle_timeout<T>(&mut self, timeout: T) -> &mut Self
+    where
+        T: Into<Timeout>,
+    {
+        self.idle_timeout = timeout.into();
+        self
+    }
+
+    /// Set the run timeout
+    ///
+    /// This sets how long the child is allowed to run before a call to
+    /// [`Child::next_event()`] returns `Some(Event::Error(Error::RunTimeout {
+    /// .. }))`. When using [`Command::new()`], the default is
+    /// [`Timeout::Never`].
+    ///
+    /// You may pass this anything that can be converted into a [`Timeout`] with
+    /// `.into()`:
+    ///
+    ///   * [`Timeout::Never`]
+    ///   * [`Timeout::Future`]
+    ///   * [`std::time::Duration`] (will be converted to `Timeout::Future`)
+    ///   * [`None`] (will be converted to `Timeout::Never`)
+    ///
+    /// ```rust
+    /// use assert2::let_assert;
+    /// use cron_wrapper::command::{Command, Error, Event};
+    /// use cron_wrapper::timeout::Timeout;
+    /// use std::time::Duration;
+    ///
+    /// let mut child = Command::new("/bin/sleep", ["1"])
+    ///     .run_timeout(Duration::from_millis(1))
+    ///     .spawn()
+    ///     .unwrap();
+    /// let_assert!(
+    ///     Some(Event::Error(Error::RunTimeout { .. })) =
+    ///         child.next_event()
+    /// );
+    /// ```
+    pub fn run_timeout<T>(&mut self, timeout: T) -> &mut Self
+    where
+        T: Into<Timeout>,
+    {
+        self.run_timeout = timeout.into();
+        self
+    }
+
+    /// Set the buffer size
+    ///
+    /// This sets the size of the buffer used to read child output. It is also
+    /// the maximum size of output that will be returned in an [`Event::Stdout`]
+    /// or [`Event::Stderr`]. When using [`Command::new()`], the default is 4096
+    /// (4 KiB).
+    ///
+    /// ```rust
+    /// use assert2::let_assert;
+    /// use cron_wrapper::command::{Command, Event};
+    ///
+    /// let mut child = Command::new("/bin/echo", ["ab"])
+    ///     .buffer_size(1)
+    ///     .spawn()
+    ///     .unwrap();
+    /// let_assert!(Some(Event::Stdout(b"a")) = child.next_event());
+    /// let_assert!(Some(Event::Stdout(b"b")) = child.next_event());
+    /// let_assert!(Some(Event::Stdout(b"\n")) = child.next_event());
+    /// ```
+    pub fn buffer_size(&mut self, buffer_size: usize) -> &mut Self {
+        self.buffer_size = buffer_size;
+        self
+    }
+
     /// Run the command and produce a [`Child`].
-    pub fn start(self) -> Result<Child, Error> {
-        let command = self.command;
-        let args = self.args;
+    ///
+    /// This may be run multiple times to spawn multiple children.
+    ///
+    /// ```rust
+    /// use assert2::{check, let_assert};
+    /// use cron_wrapper::command::{Command, Event};
+    ///
+    /// let command = Command::new("/bin/sleep", ["0"]);
+    /// let mut child = command.spawn().unwrap();
+    /// let mut child2 = command.spawn().unwrap();
+    ///
+    /// let_assert!(Some(Event::Exit(status)) = child.next_event());
+    /// check!(status.success());
+    ///
+    /// let_assert!(Some(Event::Exit(status)) = child2.next_event());
+    /// check!(status.success());
+    /// ```
+    pub fn spawn(&self) -> Result<Child, Error> {
+        let command = self.command.clone();
+        let args = &self.args;
         let run_timeout = self.run_timeout.start();
-        let idle_timeout = self.idle_timeout;
+        let idle_timeout = self.idle_timeout.clone();
 
         info!("Start: {command:?} {args:?}");
         debug!("run timeout {run_timeout}, idle timeout {idle_timeout}");
 
         let mut process = process::Command::new(&command)
-            .args(&args)
+            .args(args)
             .stdout(process::Stdio::piped())
             .stderr(process::Stdio::piped())
             .spawn()
@@ -418,7 +555,7 @@ mod tests {
             idle_timeout: Timeout::Never,
             buffer_size: 4096,
         }
-        .start()
+        .spawn()
         .unwrap();
 
         let mut count = 0;
@@ -453,7 +590,7 @@ mod tests {
             idle_timeout: Timeout::Never,
             buffer_size: 4096,
         }
-        .start()
+        .spawn()
         .unwrap();
 
         let mut count = 0;
@@ -495,7 +632,7 @@ mod tests {
             idle_timeout: Duration::from_millis(10).into(),
             buffer_size: 4096,
         }
-        .start()
+        .spawn()
         .unwrap();
 
         while let Some(event) = child.next_event() {
