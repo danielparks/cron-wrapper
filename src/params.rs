@@ -30,6 +30,16 @@ pub(crate) struct Params {
     #[clap(short = 'X', long)]
     pub show_fail_code: bool,
 
+    /// Store structured log files in DIRECTORY
+    ///
+    /// Log files will be named YYYY-mm-ddTHH:MM:SS-ZZ:ZZ.$command.$pid.log. For
+    /// example, if you were running /bin/ls, the file name might be
+    /// 2023-05-10T20:05:17-07:00.ls.15297.log. The file has a few lines of
+    /// metadata at the top (the exact command line run and the start time) then
+    /// all of the events received and the relative time in fractional seconds.
+    #[clap(short = 'l', long, value_name = "DIRECTORY")]
+    pub log_dir: Option<PathBuf>,
+
     /// Verbosity (may be repeated up to three times)
     #[clap(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,

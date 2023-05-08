@@ -30,7 +30,7 @@ page][releases]. Just extract the archive and copy the file inside into your
 
 [![docs.rs](https://img.shields.io/docsrs/cron-wrapper)][docs.rs]
 [![Crates.io](https://img.shields.io/crates/v/cron-wrapper)][crates.io]
-![Rust version 1.60+](https://img.shields.io/badge/Rust%20version-1.60%2B-success)
+![Rust version 1.65+](https://img.shields.io/badge/Rust%20version-1.65%2B-success)
 
 ## Development status
 
