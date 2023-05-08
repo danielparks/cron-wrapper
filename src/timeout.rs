@@ -7,20 +7,39 @@ const TIMEOUT_RESOLUTION: Duration = Duration::from_millis(1);
 
 /// A stateful timeout.
 ///
-/// Create a `Timeout::Future` to represent a planned timeout. Run `.start()`
-/// to get a new `Timeout::Pending` that tracks how much time has passed, then
-/// call `.check_expired()` on that to get `Timeout::Expired` when the timeout
-/// has expired.
+/// Create a `Timeout::Future` to represent a planned timeout. Run
+/// [`Timeout::start()`] to get a new `Timeout::Pending` that tracks how much
+/// time has passed, then call [`Timeout::check_expired()`] on that to get
+/// `Timeout::Expired` when the timeout has expired.
 #[derive(Clone, Eq, Debug)]
 pub enum Timeout {
+    /// Never time out.
     Never,
-    Future {
-        timeout: Duration,
-    },
-    Pending {
-        timeout: Duration,
-        start: Instant,
-    },
+
+    /// Time out after `timeout` has elapsed.
+    ///
+    /// It’s probably most convenient to use [`Timeout::from()`] to create a
+    /// timeout. For example:
+    ///
+    /// ```rust
+    /// use assert2::let_assert;
+    /// use cron_wrapper::timeout::Timeout;
+    /// use std::time::Duration;
+    ///
+    /// let_assert!(
+    ///     Timeout::Future { .. } = Timeout::from(Duration::from_millis(100))
+    /// );
+    /// ```
+    Future { timeout: Duration },
+
+    /// A time out that is counting down.
+    ///
+    /// Produced by [`Timeout::start()`].
+    Pending { timeout: Duration, start: Instant },
+
+    /// A time out that has expired.
+    ///
+    /// Produced by [`Timeout::check_expired()`].
     Expired {
         requested: Duration,
         actual: Duration,
@@ -81,7 +100,13 @@ impl Timeout {
         }
     }
 
-    /// How much of the timeout has elapsed.
+    /// Calculate how much of the timeout has elapsed.
+    ///
+    /// [`Timeout::Never`] and [`Timeout::Future`] both always return
+    /// [`Duration::ZERO`].
+    ///
+    /// This will not do anything special if called on a [`Timeout::Pending`]
+    /// that has expired. See [`Timeout::check_expired()`].
     pub fn elapsed(&self) -> Duration {
         match &self {
             Self::Never => Duration::ZERO,
@@ -91,7 +116,14 @@ impl Timeout {
         }
     }
 
-    /// How much of the timeout has elapsed, rounded to the nearest ms.
+    /// Calculate how much of the timeout has elapsed, rounded to the nearest
+    /// millisecond.
+    ///
+    /// [`Timeout::Never`] and [`Timeout::Future`] both always return
+    /// [`Duration::ZERO`].
+    ///
+    /// This will not do anything special if called on a [`Timeout::Pending`]
+    /// that has expired. See [`Timeout::check_expired()`].
     pub fn elapsed_rounded(&self) -> Duration {
         // FIXME: actually consult resolution?
         let elapsed = self.elapsed();
