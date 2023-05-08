@@ -61,15 +61,8 @@ pub enum Error {
 ///
 /// ```rust
 /// use cron_wrapper::command::Command;
-/// use cron_wrapper::timeout::Timeout;
 ///
-/// let child = Command {
-///     command: "/bin/ls".into(),
-///     args: vec!["-l".into(), "/".into()],
-///     run_timeout: Timeout::Never,
-///     idle_timeout: Timeout::Never,
-///     buffer_size: 4096,
-/// }.start().unwrap();
+/// let child = Command::new("/bin/ls", ["-l", "/"]).start().unwrap();
 /// ```
 #[derive(Clone, Debug)]
 pub struct Command {
@@ -144,6 +137,34 @@ pub struct Child {
 }
 
 impl Command {
+    /// Produce a new `Command`
+    ///
+    /// This leaves all timeouts disabled and sets the buffer size to 4 KiB.
+    ///
+    /// ```rust
+    /// use cron_wrapper::command::Command;
+    /// use cron_wrapper::timeout::Timeout;
+    ///
+    /// let command = Command::new("/bin/ls", ["-l", "/"]);
+    /// assert!(command.run_timeout == Timeout::Never);
+    /// assert!(command.idle_timeout == Timeout::Never);
+    /// assert!(command.buffer_size == 4096);
+    /// ```
+    pub fn new<S, T, I>(command: S, args: I) -> Self
+    where
+        S: Into<OsString>,
+        T: Into<OsString>,
+        I: IntoIterator<Item = T>,
+    {
+        Command {
+            command: command.into(),
+            args: args.into_iter().map(|s| s.into()).collect(),
+            run_timeout: Timeout::Never,
+            idle_timeout: Timeout::Never,
+            buffer_size: 4096,
+        }
+    }
+
     /// Run the command and produce a [`Child`].
     pub fn start(self) -> Result<Child, Error> {
         let command = self.command;
