@@ -62,7 +62,7 @@ pub enum Error {
 /// ```rust
 /// use cron_wrapper::command::Command;
 ///
-/// let child = Command::new("/bin/ls", ["-l", "/"]).spawn().unwrap();
+/// let child = Command::new("/bin/date", []).spawn().unwrap();
 /// ```
 #[derive(Clone, Debug)]
 pub struct Command {
@@ -146,15 +146,15 @@ impl Command {
     /// use cron_wrapper::timeout::Timeout;
     ///
     /// let command = Command::new("/bin/ls", ["-l", "/"]);
+    /// assert!(command.args == ["-l", "/"]);
     /// assert!(command.run_timeout == Timeout::Never);
     /// assert!(command.idle_timeout == Timeout::Never);
     /// assert!(command.buffer_size == 4096);
     /// ```
-    pub fn new<S, T, I>(command: S, args: I) -> Self
+    pub fn new<S, I>(command: S, args: I) -> Self
     where
         S: Into<OsString>,
-        T: Into<OsString>,
-        I: IntoIterator<Item = T>,
+        I: IntoIterator<Item = S>,
     {
         Command {
             command: command.into(),
