@@ -4,7 +4,11 @@ use std::io::Write;
 /// Whether a writer is running or paused.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum State {
+    /// The writer is paused. The content is a buffer containing all data
+    /// written while paused.
     Paused(Vec<u8>),
+
+    /// The writer is running. All writes go directly to the output stream.
     Running,
 }
 

@@ -22,7 +22,10 @@ const POLL_MAX_TIMEOUT: Timeout = Timeout::Future {
 /// Used to indicate either stderr or stdout on the child process.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum StreamType {
+    /// Child’s standard output stream.
     Stdout,
+
+    /// Child’s standard error stream.
     Stderr,
 }
 
@@ -38,23 +41,52 @@ impl fmt::Display for StreamType {
 /// Errors that running a command might raise.
 #[derive(Debug, Error)]
 pub enum Error {
+    /// Error originating specifically from [`std::process::Command::spawn()`]
+    /// (not all of [`crate::command::Command::spawn()`]).
     #[error("Could not run command {command:?}: {error}")]
-    Spawn { command: OsString, error: io::Error },
+    Spawn {
+        /// The executable.
+        command: OsString,
 
+        /// The error raised by [`std::process::Command::spawn()`].
+        error: io::Error,
+    },
+
+    /// Error originating specifically from [`popol::Sources::poll()`].
     #[error("Error while waiting for input: {error}")]
-    Poll { error: io::Error },
+    Poll {
+        /// The error raised by [`popol::Sources::poll()`].
+        error: io::Error,
+    },
 
+    /// Error originating specifically from
+    /// [`std::process::ChildStdout::read()`] or
+    /// [`std::process::ChildStderr::read()`].
     #[error("Error reading from child {stream}: {error}")]
     Read {
+        /// The error raised by the read call
+        /// ([`std::process::ChildStdout::read()`] or
+        /// [`std::process::ChildStderr::read()`]).
         error: io::Error,
+
+        /// Which child stream was being read when the error occurred (stdout or
+        /// stderr).
         stream: StreamType,
     },
 
+    /// The idle timeout elapsed waiting for input in `poll()`.
     #[error("Timed out waiting for input after {:?}", timeout.elapsed_rounded())]
-    IdleTimeout { timeout: Timeout },
+    IdleTimeout {
+        /// Information about the timeout in the form of [`Timeout::Expired`].
+        timeout: Timeout,
+    },
 
+    /// The run timeout elapsed.
     #[error("Run timed out after {:?}", timeout.elapsed_rounded())]
-    RunTimeout { timeout: Timeout },
+    RunTimeout {
+        /// Information about the timeout in the form of [`Timeout::Expired`].
+        timeout: Timeout,
+    },
 }
 
 /// A command to run.

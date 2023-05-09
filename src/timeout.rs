@@ -30,18 +30,30 @@ pub enum Timeout {
     ///     Timeout::Future { .. } = Timeout::from(Duration::from_millis(100))
     /// );
     /// ```
-    Future { timeout: Duration },
+    Future {
+        /// The length of the timeout.
+        timeout: Duration,
+    },
 
-    /// A time out that is counting down.
+    /// A timeout that is counting down.
     ///
     /// Produced by [`Timeout::start()`].
-    Pending { timeout: Duration, start: Instant },
+    Pending {
+        /// The length of the timeout.
+        timeout: Duration,
 
-    /// A time out that has expired.
+        /// When the timeout started.
+        start: Instant,
+    },
+
+    /// A timeout that has expired.
     ///
     /// Produced by [`Timeout::check_expired()`].
     Expired {
+        /// The original length of the timeout.
         requested: Duration,
+
+        /// How much time actually elapsed before the operation was canceled.
         actual: Duration,
     },
 }
