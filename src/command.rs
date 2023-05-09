@@ -346,6 +346,51 @@ impl Command {
 }
 
 impl Child {
+    /// Get the child’s process ID.
+    pub fn id(&self) -> u32 {
+        self.process.id()
+    }
+
+    /// Get a reference to the underlying [`std::process::Child`] for the child.
+    ///
+    /// ```rust
+    /// use cron_wrapper::command::Command;
+    ///
+    /// let mut child = Command::new("/bin/echo", ["hello"]).spawn().unwrap();
+    /// assert!(child.process().id() > 0);
+    /// ```
+    pub fn process(&self) -> &process::Child {
+        &self.process
+    }
+
+    /// Get a mutable reference to the underlying [`std::process::Child`] for
+    /// the child.
+    ///
+    /// # Using [`std::process::Child::kill()`]:
+    ///
+    /// ```rust
+    /// use assert2::{check, let_assert};
+    /// use cron_wrapper::command::{Command, Event};
+    ///
+    /// let mut child = Command::new("/bin/sleep", ["100"]).spawn().unwrap();
+    /// child.process_mut().kill().unwrap();
+    ///
+    /// let_assert!(Some(Event::Exit(status)) = child.next_event());
+    /// check!(!status.success());
+    /// ```
+    ///
+    /// # Using [`std::process::Child::wait()`]:
+    ///
+    /// ```rust
+    /// use cron_wrapper::command::{Command, Event};
+    ///
+    /// let mut child = Command::new("/bin/echo", ["hello"]).spawn().unwrap();
+    /// assert!(child.process_mut().wait().unwrap().success());
+    /// ```
+    pub fn process_mut(&mut self) -> &mut process::Child {
+        &mut self.process
+    }
+
     /// Get next event from child (will wait).
     ///
     /// This works like an iterator, but the Iterator trait cannot return
@@ -361,6 +406,17 @@ impl Child {
     /// If a run timeout is set and this returns
     /// `Some(Event::Error(Error::RunTimeout { .. }))` then this will return
     /// the same thing on every future call.
+    ///
+    /// ```rust
+    /// use assert2::{check, let_assert};
+    /// use cron_wrapper::command::{Command, Event};
+    ///
+    /// let mut child = Command::new("/bin/echo", ["hello"]).spawn().unwrap();
+    /// let_assert!(Some(Event::Stdout(b"hello\n")) = child.next_event());
+    /// let_assert!(Some(Event::Exit(status)) = child.next_event());
+    /// check!(status.success());
+    /// let_assert!(None = child.next_event());
+    /// ```
     pub fn next_event(&mut self) -> Option<Event<'_>> {
         // FIXME? this sometimes messes up the order if stderr and stdout are
         // used in the same line. Not sure this is possible to fix.
