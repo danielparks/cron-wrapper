@@ -2,7 +2,8 @@
 
 use anyhow::bail;
 use clap::Parser;
-use cron_wrapper::{command, pause_writer::PausableWriter};
+use cron_wrapper::command::{Command, Event};
+use cron_wrapper::pause_writer::PausableWriter;
 use log::Level::Trace;
 use log::{debug, info, log_enabled};
 use simplelog::{
@@ -33,7 +34,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
         out.unpause()?;
     }
 
-    let mut child = command::Command {
+    let mut child = Command {
         command: params.command.clone(),
         args: params.args.clone(),
         run_timeout: params.run_timeout.into(),
@@ -44,13 +45,13 @@ fn cli(params: Params) -> anyhow::Result<()> {
 
     while let Some(event) = child.next_event() {
         match event {
-            command::Event::Stdout(output) => {
+            Event::Stdout(output) => {
                 if !output.is_empty() && !log_enabled!(Trace) {
                     out.write_all(output)?;
                     out.flush()?; // In case there wasn’t a newline.
                 }
             }
-            command::Event::Stderr(output) => {
+            Event::Stderr(output) => {
                 if !output.is_empty() && !log_enabled!(Trace) {
                     if params.on_error && out.is_paused() {
                         debug!("--on-error enabled: unpausing output");
@@ -61,7 +62,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
                     out.flush()?; // In case there wasn’t a newline.
                 }
             }
-            command::Event::Exit(status) => {
+            Event::Exit(status) => {
                 let code = wait_status_to_code(status)
                     .expect("no exit code for child");
                 info!(
@@ -76,7 +77,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
 
                 process::exit(code);
             }
-            command::Event::Error(error) => {
+            Event::Error(error) => {
                 return Err(error.into());
             }
         }
