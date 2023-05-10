@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::fmt;
 use std::io::{self, Read};
+use std::path::PathBuf;
 use std::process;
 use std::time::Duration;
 use thiserror::Error;
@@ -46,7 +47,7 @@ pub enum Error {
     #[error("Could not run command {command:?}: {error}")]
     Spawn {
         /// The executable.
-        command: OsString,
+        command: PathBuf,
 
         /// The error raised by [`std::process::Command::spawn()`].
         error: io::Error,
@@ -99,7 +100,7 @@ pub enum Error {
 #[derive(Clone, Debug)]
 pub struct Command {
     /// The path to the executable to run.
-    pub command: OsString,
+    pub command: PathBuf,
 
     /// Arguments to pass, not including the executable’s name.
     pub args: Vec<OsString>,
@@ -188,6 +189,7 @@ impl Command {
         S: Into<OsString>,
         I: IntoIterator<Item = S>,
     {
+        let command: OsString = command.into();
         Command {
             command: command.into(),
             args: args.into_iter().map(|s| s.into()).collect(),

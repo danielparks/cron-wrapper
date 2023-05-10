@@ -1,13 +1,14 @@
 use anyhow::anyhow;
 use clap::Parser;
 use std::ffi::OsString;
+use std::path::PathBuf;
 use std::time::Duration;
 
 #[derive(Debug, Parser)]
 #[clap(version, about)]
 pub(crate) struct Params {
     /// The executable to run
-    pub command: OsString,
+    pub command: PathBuf,
 
     /// Arguments to pass to the executable
     #[clap(allow_hyphen_values = true)]
@@ -88,6 +89,7 @@ mod tests {
     use clap::error::{
         ContextKind::InvalidArg, ContextValue::String, ErrorKind,
     };
+    use std::path::PathBuf;
     use std::time::Duration;
 
     #[test]
@@ -96,7 +98,7 @@ mod tests {
             Ok(params) =
                 Params::try_parse_from(["cron-wrapper", "-v", "command"])
         );
-        check!(params.command == "command");
+        check!(params.command == PathBuf::from("command"));
         check!(params.args.len() == 0);
         check!(params.verbose == 1);
     }
@@ -107,7 +109,7 @@ mod tests {
             Ok(params) =
                 Params::try_parse_from(["cron-wrapper", "-vv", "command"])
         );
-        check!(params.command == "command");
+        check!(params.command == PathBuf::from("command"));
         check!(params.args.len() == 0);
         check!(params.verbose == 2);
     }
@@ -146,7 +148,7 @@ mod tests {
                 "--foo",
             ])
         );
-        check!(params.command == "command");
+        check!(params.command == PathBuf::from("command"));
         check!(params.args == ["--foo"]);
         check!(params.verbose == 1);
     }
@@ -161,7 +163,7 @@ mod tests {
                 "-f",
             ])
         );
-        check!(params.command == "command");
+        check!(params.command == PathBuf::from("command"));
         check!(params.args == ["-f"]);
         check!(params.verbose == 1);
     }
@@ -177,7 +179,7 @@ mod tests {
                 "--foo",
             ])
         );
-        check!(params.command == "command");
+        check!(params.command == PathBuf::from("command"));
         check!(params.args == ["-f", "--foo"]);
         check!(params.verbose == 1);
     }
@@ -193,7 +195,7 @@ mod tests {
                 "--on-error",
             ])
         );
-        check!(params.command == "command");
+        check!(params.command == PathBuf::from("command"));
         check!(params.args == ["--on-error"]);
         check!(params.verbose == 1);
         check!(params.on_error == false);
@@ -210,7 +212,7 @@ mod tests {
                 "--verbose",
             ])
         );
-        check!(params.command == "command");
+        check!(params.command == PathBuf::from("command"));
         check!(params.args == ["--verbose"]);
         check!(params.verbose == 1);
     }
@@ -222,7 +224,7 @@ mod tests {
             Ok(params) =
                 Params::try_parse_from(["cron-wrapper", "-v", "command", "-E"])
         );
-        check!(params.command == "command");
+        check!(params.command == PathBuf::from("command"));
         check!(params.args == ["-E"]);
         check!(params.verbose == 1);
         check!(params.on_error == false);
@@ -235,7 +237,7 @@ mod tests {
             Ok(params) =
                 Params::try_parse_from(["cron-wrapper", "-v", "command", "-v"])
         );
-        check!(params.command == "command");
+        check!(params.command == PathBuf::from("command"));
         check!(params.args == ["-v"]);
         check!(params.verbose == 1);
     }
@@ -254,7 +256,7 @@ mod tests {
                 "--bar",
             ])
         );
-        check!(params.command == "command");
+        check!(params.command == PathBuf::from("command"));
         check!(params.args == ["-abc", "foo", "--", "-s", "--bar"]);
         check!(params.verbose == 1);
     }
