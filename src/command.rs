@@ -343,7 +343,7 @@ impl Command {
         let run_timeout = self.run_timeout.start();
         let idle_timeout = self.idle_timeout.clone();
 
-        info!("Start: {command:?} {args:?}");
+        info!("Start: {}", self.command_line_sh());
         debug!("run timeout {run_timeout}, idle timeout {idle_timeout}");
 
         let mut process = process::Command::new(&command)
@@ -376,6 +376,18 @@ impl Command {
             state: State::Polling,
             buffer: vec![0; self.buffer_size],
         })
+    }
+
+    /// Get the command line to run escaped for the shell.
+    ///
+    /// Note that this uses a lossy conversion of OsString to String.
+    pub fn command_line_sh(&self) -> String {
+        shell_words::join(
+            Some(OsString::from(&self.command))
+                .iter()
+                .chain(self.args.iter())
+                .map(|arg| arg.to_string_lossy()),
+        )
     }
 }
 

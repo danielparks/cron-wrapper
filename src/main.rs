@@ -34,14 +34,14 @@ fn cli(params: Params) -> anyhow::Result<()> {
         out.unpause()?;
     }
 
-    let mut child = Command {
+    let command = Command {
         command: params.command.clone(),
         args: params.args.clone(),
         run_timeout: params.run_timeout.into(),
         idle_timeout: params.idle_timeout.into(),
         buffer_size: params.buffer_size,
-    }
-    .spawn()?;
+    };
+    let mut child = command.spawn()?;
 
     while let Some(event) = child.next_event() {
         match event {
@@ -65,10 +65,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
             Event::Exit(status) => {
                 let code = wait_status_to_code(status)
                     .expect("no exit code for child");
-                info!(
-                    "Exit with {code}: {:?} {:?}",
-                    params.command, params.args
-                );
+                info!("Exit with {code}: {}", command.command_line_sh());
 
                 if code != 0 && params.on_fail && out.is_paused() {
                     debug!("--on-fail enabled: unpausing output");

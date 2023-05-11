@@ -20,6 +20,7 @@ clap = { version = "4.0.18", features = ["derive"] }
 duration-str = { version = "0.5.0", default-features = false }
 log = "0.4.14"
 popol = "2.0.0"
+shell-words = "1.1.0"
 simplelog = "0.12.0"
 thiserror = "1.0.40"
 
