@@ -22,6 +22,14 @@ pub(crate) struct Params {
     #[clap(short = 'F', long)]
     pub on_fail: bool,
 
+    /// Always output exit code
+    #[clap(long)]
+    pub show_exit_code: bool,
+
+    /// Output exit code when it’s not 0
+    #[clap(short = 'X', long)]
+    pub show_fail_code: bool,
+
     /// Verbosity (may be repeated up to three times)
     #[clap(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
@@ -132,10 +140,10 @@ mod tests {
     fn args_invalid_short_option() {
         let_assert!(
             Err(error) =
-                Params::try_parse_from(["cron-wrapper", "-X", "-v", "command"])
+                Params::try_parse_from(["cron-wrapper", "-!", "-v", "command"])
         );
         check!(error.kind() == ErrorKind::UnknownArgument);
-        check!(error.get(InvalidArg) == Some(&String("-X".into())));
+        check!(error.get(InvalidArg) == Some(&String("-!".into())));
     }
 
     #[test]

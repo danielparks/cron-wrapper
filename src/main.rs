@@ -65,13 +65,18 @@ fn cli(params: Params) -> anyhow::Result<()> {
             Event::Exit(status) => {
                 let code = wait_status_to_code(status)
                     .expect("no exit code for child");
-                info!("Exit with {code}: {}", command.command_line_sh());
 
                 if code != 0 && params.on_fail && out.is_paused() {
                     debug!("--on-fail enabled: unpausing output");
                     out.unpause()?;
                 }
 
+                if params.show_exit_code || (params.show_fail_code && code != 0)
+                {
+                    println!("Exited with code {code}");
+                }
+
+                info!("Exit with {code}: {}", command.command_line_sh());
                 process::exit(code);
             }
             Event::Error(error) => {
