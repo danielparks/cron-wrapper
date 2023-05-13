@@ -42,14 +42,14 @@ impl fmt::Display for StreamType {
 /// Errors that running a command might raise.
 #[derive(Debug, Error)]
 pub enum Error {
-    /// Error originating specifically from [`std::process::Command::spawn()`]
-    /// (not all of [`crate::command::Command::spawn()`]).
+    /// Error originating specifically from [`process::Command::spawn()`] (not
+    /// all of [`crate::command::Command::spawn()`]).
     #[error("Could not run command {command:?}: {error}")]
     Spawn {
         /// The executable.
         command: PathBuf,
 
-        /// The error raised by [`std::process::Command::spawn()`].
+        /// The error raised by [`process::Command::spawn()`].
         error: io::Error,
     },
 
@@ -60,14 +60,12 @@ pub enum Error {
         error: io::Error,
     },
 
-    /// Error originating specifically from
-    /// [`std::process::ChildStdout::read()`] or
-    /// [`std::process::ChildStderr::read()`].
+    /// Error originating specifically from [`process::ChildStdout::read()`] or
+    /// [`process::ChildStderr::read()`].
     #[error("Error reading from child {stream}: {error}")]
     Read {
-        /// The error raised by the read call
-        /// ([`std::process::ChildStdout::read()`] or
-        /// [`std::process::ChildStderr::read()`]).
+        /// The error raised by the read call ([`process::ChildStdout::read()`]
+        /// or [`process::ChildStderr::read()`]).
         error: io::Error,
 
         /// Which child stream was being read when the error occurred (stdout or
@@ -397,7 +395,7 @@ impl Child {
         self.process.id()
     }
 
-    /// Get a reference to the underlying [`std::process::Child`] for the child.
+    /// Get a reference to the underlying [`process::Child`] for the child.
     ///
     /// ```rust
     /// use cron_wrapper::command::Command;
@@ -409,10 +407,10 @@ impl Child {
         &self.process
     }
 
-    /// Get a mutable reference to the underlying [`std::process::Child`] for
+    /// Get a mutable reference to the underlying [`process::Child`] for
     /// the child.
     ///
-    /// # Using [`std::process::Child::kill()`]:
+    /// # Using [`process::Child::kill()`]:
     ///
     /// ```rust
     /// use assert2::{check, let_assert};
@@ -425,7 +423,7 @@ impl Child {
     /// check!(!status.success());
     /// ```
     ///
-    /// # Using [`std::process::Child::wait()`]:
+    /// # Using [`process::Child::wait()`]:
     ///
     /// ```rust
     /// use cron_wrapper::command::{Command, Event};
