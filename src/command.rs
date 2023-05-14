@@ -648,15 +648,7 @@ mod tests {
 
     #[test]
     fn next_after_exit() {
-        let mut child = Command {
-            command: "/bin/echo".into(),
-            args: vec!["ok".into()],
-            run_timeout: Timeout::Never,
-            idle_timeout: Timeout::Never,
-            buffer_size: 4096,
-        }
-        .spawn()
-        .unwrap();
+        let mut child = Command::new("/bin/echo", ["ok"]).spawn().unwrap();
 
         let mut count = 0;
         while let Some(event) = child.next_event() {
@@ -683,15 +675,10 @@ mod tests {
 
     #[test]
     fn next_after_run_timeout() {
-        let mut child = Command {
-            command: "/bin/sleep".into(),
-            args: vec!["1".into()],
-            run_timeout: Duration::from_millis(500).into(),
-            idle_timeout: Timeout::Never,
-            buffer_size: 4096,
-        }
-        .spawn()
-        .unwrap();
+        let mut child = Command::new("/bin/sleep", ["1"])
+            .run_timeout(Duration::from_millis(500))
+            .spawn()
+            .unwrap();
 
         let mut count = 0;
         while let Some(event) = child.next_event() {
@@ -725,16 +712,12 @@ mod tests {
 
     #[test]
     fn next_after_idle_timeout() {
-        let mut child = Command {
-            command: "/bin/sleep".into(),
-            args: vec!["1".into()],
-            run_timeout: Timeout::Never,
-            idle_timeout: Duration::from_millis(10).into(),
-            buffer_size: 4096,
-        }
-        .spawn()
-        .unwrap();
+        let mut child = Command::new("/bin/sleep", ["1"])
+            .idle_timeout(Duration::from_millis(10))
+            .spawn()
+            .unwrap();
 
+        let mut count = 0;
         while let Some(event) = child.next_event() {
             match event {
                 Event::Stdout(output) => {
@@ -747,6 +730,7 @@ mod tests {
                     timeout: Timeout::Expired { .. },
                 }) => {
                     // We'll get this multiple times.
+                    count += 1;
                 }
                 Event::Error(error) => {
                     panic!("unexpected error: {error:?}");
@@ -756,6 +740,9 @@ mod tests {
                 }
             }
         }
+
+        check!(count > 50, "expected around 100 idle timeouts");
+        check!(count < 150, "expected around 100 idle timeouts");
 
         check!(child.next_event().is_none());
         check!(child.next_event().is_none());
