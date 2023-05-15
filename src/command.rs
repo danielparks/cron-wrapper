@@ -8,7 +8,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::io::{self, Read};
 use std::os::unix::process::ExitStatusExt;
-use std::path::PathBuf;
+use std::path::Path;
 use std::process;
 use std::time::Duration;
 use thiserror::Error;
@@ -48,7 +48,7 @@ pub enum Error {
     #[error("Could not run command {command:?}: {error}")]
     Spawn {
         /// The executable.
-        command: PathBuf,
+        command: OsString,
 
         /// The error raised by [`process::Command::spawn()`].
         error: io::Error,
@@ -99,7 +99,7 @@ pub enum Error {
 #[derive(Clone, Debug)]
 pub struct Command {
     /// The path to the executable to run.
-    pub command: PathBuf,
+    pub command: OsString,
 
     /// Arguments to pass, not including the executable’s name.
     pub args: Vec<OsString>,
@@ -204,7 +204,6 @@ impl Command {
         S: Into<OsString>,
         I: IntoIterator<Item = S>,
     {
-        let command: OsString = command.into();
         Command {
             command: command.into(),
             args: args.into_iter().map(|s| s.into()).collect(),
@@ -393,15 +392,26 @@ impl Command {
         })
     }
 
+    /// Get the executable as a [`Path`].
+    pub fn command_as_path(&self) -> &Path {
+        self.command.as_ref()
+    }
+
+    /// Get the command line to run as an iterator over words.
+    pub fn command_line(&self) -> CommandLineIterator {
+        CommandLineIterator {
+            command: self,
+            iter: None,
+        }
+    }
+
     /// Get the command line to run escaped for the shell.
     ///
     /// Note that this uses a lossy conversion of OsString to String.
     pub fn command_line_sh(&self) -> String {
         shell_words::join(
-            Some(OsString::from(&self.command))
-                .iter()
-                .chain(self.args.iter())
-                .map(|arg| arg.to_string_lossy()),
+            self.command_line()
+                .map(|arg| arg.to_string_lossy().into_owned()),
         )
     }
 }
@@ -639,6 +649,26 @@ impl Child {
         }
 
         Ok(count)
+    }
+}
+
+/// An iterator that produces the words in the command line.
+pub struct CommandLineIterator<'a> {
+    command: &'a Command,
+    iter: Option<std::slice::Iter<'a, OsString>>,
+}
+
+impl<'a> Iterator for CommandLineIterator<'a> {
+    type Item = &'a OsString;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if let Some(ref mut iter) = self.iter {
+            iter.next()
+        } else {
+            // First element: command.
+            self.iter = Some(self.command.args.iter());
+            Some(&self.command.command)
+        }
     }
 }
 
