@@ -11,7 +11,6 @@ use simplelog::{
     TermLogger, TerminalMode,
 };
 use std::io::{self, Write};
-use std::os::unix::process::ExitStatusExt;
 use std::process;
 
 mod params;
@@ -62,9 +61,8 @@ fn cli(params: Params) -> anyhow::Result<()> {
                     out.flush()?; // In case there wasn’t a newline.
                 }
             }
-            Event::Exit(status) => {
-                let code = wait_status_to_code(status)
-                    .expect("no exit code for child");
+            Event::Exit(_) => {
+                let code = event.exit_code().expect("no exit code for child");
 
                 if code != 0 && params.on_fail && out.is_paused() {
                     debug!("--on-fail enabled: unpausing output");
@@ -121,9 +119,4 @@ fn new_logger_config() -> ConfigBuilder {
     let _ = builder.set_time_offset_to_local();
 
     builder
-}
-
-/// Get the actual exit code from a finished child process
-fn wait_status_to_code(status: process::ExitStatus) -> Option<i32> {
-    status.code().or_else(|| Some(128 + status.signal()?))
 }
