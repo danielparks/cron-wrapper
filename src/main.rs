@@ -34,7 +34,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
     }
 
     let command = Command {
-        command: params.command.clone(),
+        command: params.command.clone().into(),
         args: params.args.clone(),
         run_timeout: params.run_timeout.into(),
         idle_timeout: params.idle_timeout.into(),
