@@ -367,6 +367,8 @@ impl Command {
             .spawn()
             .map_err(|error| Error::Spawn { command, error })?;
 
+        debug!("child process id: {}", process.id());
+
         let mut sources = popol::Sources::with_capacity(2);
 
         let stdout = process.stdout.take().expect("process.stdout is None");
