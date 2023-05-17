@@ -1,15 +1,17 @@
 #![forbid(unsafe_code)]
 
-use anyhow::bail;
+use anyhow::{bail, Context};
 use clap::Parser;
 use cron_wrapper::command::{Command, Event};
+use cron_wrapper::job_logger::JobLogger;
 use cron_wrapper::pause_writer::PausableWriter;
 use log::Level::Trace;
-use log::{debug, info, log_enabled};
+use log::{debug, error, info, log_enabled};
 use simplelog::{
     ColorChoice, CombinedLogger, Config, ConfigBuilder, LevelFilter,
     TermLogger, TerminalMode,
 };
+use std::fs;
 use std::io::{self, Write};
 use std::process;
 
@@ -26,13 +28,17 @@ fn main() {
 fn cli(params: Params) -> anyhow::Result<()> {
     init_logging(&params)?;
 
-    let mut out = PausableWriter::new(io::stdout());
-    if params.suppress_output() {
-        out.pause();
-    } else {
-        out.unpause()?;
-    }
+    let mut job_logger = init_job_logger(&params)?;
 
+    start(params, &mut job_logger).map_err(|error| {
+        if let Err(error2) = job_logger.log_wrapper_error(&error) {
+            error!("Encountered error2 while logging another error. Error2: {error2:?}");
+        }
+        error
+    })
+}
+
+fn start(params: Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
     let command = Command {
         command: params.command.clone().into(),
         args: params.args.clone(),
@@ -40,9 +46,20 @@ fn cli(params: Params) -> anyhow::Result<()> {
         idle_timeout: params.idle_timeout.into(),
         buffer_size: params.buffer_size,
     };
+    job_logger.set_command(&command);
+
     let mut child = command.spawn()?;
+    job_logger.set_child(&child);
+
+    let mut out = PausableWriter::new(io::stdout());
+    if params.suppress_output() {
+        out.pause();
+    } else {
+        out.unpause()?;
+    }
 
     while let Some(event) = child.next_event() {
+        job_logger.log_event(&event)?;
         match event {
             Event::Stdout(output) => {
                 if !output.is_empty() && !log_enabled!(Trace) {
@@ -78,7 +95,10 @@ fn cli(params: Params) -> anyhow::Result<()> {
                 process::exit(code);
             }
             Event::Error(error) => {
-                return Err(error.into());
+                // Don’t return this error since that will cause it to be logged
+                // again as a “wrapper” error.
+                eprintln!("Error: {:#}", error);
+                process::exit(1);
             }
         }
     }
@@ -86,6 +106,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
     unreachable!("should have exited when child did");
 }
 
+// This does not deal with logs from child processes.
 fn init_logging(params: &Params) -> anyhow::Result<()> {
     let filter = match params.verbose {
         4.. => bail!("-v is only allowed up to 3 times."),
@@ -119,4 +140,19 @@ fn new_logger_config() -> ConfigBuilder {
     let _ = builder.set_time_offset_to_local();
 
     builder
+}
+
+fn init_job_logger(params: &Params) -> anyhow::Result<JobLogger> {
+    if let Some(path) = &params.log_dir {
+        if !path.exists() {
+            fs::create_dir_all(path)
+                .context(format!("Creating log directory {path:?}"))?;
+        } else if !path.is_dir() {
+            bail!("{path:?} is not a directory (specified with --log-dir)");
+        }
+
+        Ok(JobLogger::new_in_directory(path))
+    } else {
+        Ok(JobLogger::none())
+    }
 }
