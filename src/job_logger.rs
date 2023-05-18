@@ -142,6 +142,7 @@ impl JobLogger {
         }
     }
 
+    /// Private: write a record in the log file.
     fn write_record(&mut self, kind: &str, value: &[u8]) -> anyhow::Result<()> {
         let time = format!("{:.3}", self.elapsed());
         let indent = time.len() + 5;
@@ -163,6 +164,7 @@ impl JobLogger {
         self.write_all(&buffer)
     }
 
+    /// Private: escape bytes for output as a value in an event.
     fn escape(&mut self, input: &[u8], indent: usize) -> Vec<u8> {
         let indent: Vec<u8> = iter::repeat(b' ').take(indent).collect();
         let mut output = vec![0u8; input.len()];
