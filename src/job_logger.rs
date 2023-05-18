@@ -79,13 +79,8 @@ impl JobLogger {
     /// destination.
     pub fn ensure_open(&mut self) -> anyhow::Result<()> {
         if let Destination::Directory(path) = &self.destination {
-            let path = path.join(self.generate_file_name()?);
-            let file = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&path)?;
             info!("Saving job output to {path:?}");
-            self.destination = Destination::File { path, file };
+            self.destination = self.create_file_in_directory(path)?;
             self.write_file_header()?;
         }
 
@@ -210,8 +205,48 @@ impl JobLogger {
         self.write_all(format!("Start: {start}\n\n").as_bytes())
     }
 
-    /// Private: generate a file name for a log.
-    fn generate_file_name(&self) -> anyhow::Result<OsString> {
+    /// Private: create a log file in a given directory.
+    fn create_file_in_directory(
+        &self,
+        directory: &Path,
+    ) -> anyhow::Result<Destination> {
+        let base = self.generate_file_name_base()?;
+        let mut number = String::new();
+        let mut file_name = OsString::with_capacity(base.len() + 4);
+        let mut path = PathBuf::new();
+        const MAX_ATTEMPTS: usize = 100;
+
+        // The first attempt won‘t have a number in the file name, and each
+        // loop preps the number for the next loop. Thus, the last loop will
+        // attempt the file name with number MAX_ATTEMPTS - 1.
+        for i in 1..=MAX_ATTEMPTS {
+            file_name.clear();
+            file_name.push(&base);
+            file_name.push(number);
+            file_name.push(".log");
+
+            path = directory.join(&file_name);
+            match exclusive_create_file(&path) {
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                    number = format!(".{i}");
+                }
+                Ok(file) => return Ok(Destination::File { path, file }),
+                Err(error) => return Err(error.into()),
+            }
+        }
+
+        Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            format!(
+                "Could not create unique log file after {MAX_ATTEMPTS} \
+                attempts. Last: {path:?}"
+            ),
+        )
+        .into())
+    }
+
+    /// Private: generate the first part of a file name for a log.
+    fn generate_file_name_base(&self) -> anyhow::Result<OsString> {
         let mut file_name = OsString::from(
             self.start_time.format(&Iso8601::<FILE_NAME_DATE_FORMAT>)?,
         );
@@ -231,8 +266,6 @@ impl JobLogger {
             file_name.push(child_id.to_string());
         }
 
-        file_name.push(".log");
-
         Ok(file_name)
     }
 
@@ -240,6 +273,14 @@ impl JobLogger {
     fn elapsed(&self) -> f64 {
         self.start_instant.elapsed().as_secs_f64()
     }
+}
+
+/// Create a file; fail if it already exists.
+fn exclusive_create_file(path: &Path) -> io::Result<fs::File> {
+    fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)
 }
 
 /// Where logs should go.
@@ -299,7 +340,7 @@ impl io::Write for Destination {
 mod tests {
     use super::*;
     use anyhow::anyhow;
-    use assert2::check;
+    use assert2::{check, let_assert};
     use regex::Regex;
     use tempfile::tempdir;
 
@@ -382,5 +423,37 @@ mod tests {
         check!(logger.log_wrapper_error(&anyhow!("uh oh")).is_ok());
 
         check_file_name(&logger, r"^<date>T<time>\.ls\.[0-9]+\.log$");
+    }
+
+    #[test]
+    fn directory_logger_conflicting_file_name() {
+        let directory = tempdir().unwrap();
+        let buffer = b"abc\n";
+
+        let mut logger = JobLogger::new_in_directory(directory.path());
+        check!(logger.path().is_none());
+        check!(logger.log_event(&Event::Stdout(&buffer[..])).is_ok());
+        check_file_name(&logger, r"^<date>T<time>\.log$");
+
+        // Valid attempts.
+        for i in 1..100 {
+            // Reset destination. This is the easiest way to get the logger to
+            // generate an identical name for the log file.
+            logger.destination =
+                Destination::Directory(directory.path().to_path_buf());
+            check!(logger.path().is_none());
+            check!(logger.log_event(&Event::Stdout(&buffer[..])).is_ok());
+            check_file_name(&logger, &format!(r"^<date>T<time>\.{i}\.log$"));
+        }
+
+        // Reset destination. This is the easiest way to get the logger to
+        // generate an identical name for the log file.
+        logger.destination =
+            Destination::Directory(directory.path().to_path_buf());
+        check!(logger.path().is_none());
+
+        let_assert!(Err(error) = logger.log_event(&Event::Stdout(&buffer[..])));
+        let_assert!(Some(error) = error.downcast_ref::<io::Error>());
+        check!(error.kind() == io::ErrorKind::AlreadyExists);
     }
 }
