@@ -497,7 +497,12 @@ impl Child {
         // Are we still reading?
         if let State::Reading(stream) = self.state {
             match self.read(stream) {
-                Ok(0) => {} // FIXME?
+                Ok(0) => {
+                    // This should have been set by `read()`, but if it didn’t
+                    // we could end up at `unreachable!()` below, so we set it
+                    // here ot be sure.
+                    self.state = State::Polling;
+                }
                 Ok(length) => {
                     return Some(Event::make_read(
                         stream,
@@ -522,7 +527,12 @@ impl Child {
 
                 if event.is_readable() {
                     match self.read(event.key) {
-                        Ok(0) => {} // FIXME?
+                        Ok(0) => {
+                            // This should have been set by `read()`, but if it
+                            // didn’t we could end up at `unreachable!()` below,
+                            // so we set it here ot be sure.
+                            self.state = State::Polling;
+                        }
                         Ok(length) => {
                             return Some(Event::make_read(
                                 event.key,
@@ -647,9 +657,7 @@ impl Child {
                     trace!("{stream:?}: io::ErrorKind::Interrupted");
                     continue;
                 }
-                Err(error) => {
-                    Err(Error::Read { error, stream })
-                }
+                Err(error) => Err(Error::Read { error, stream }),
             };
         }
     }
