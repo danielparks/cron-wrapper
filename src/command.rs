@@ -585,8 +585,6 @@ impl Child {
             // poll() multiple times before we reach the real timeout.
             let call_timeout = cmp::min(&timeout, &POLL_MAX_TIMEOUT).timeout();
 
-            // FIXME? handle EINTR? I don’t think it will come up unless we have
-            // a signal handler set.
             if let Err(error) =
                 self.sources.poll(&mut self.events, call_timeout)
             {
@@ -610,47 +608,50 @@ impl Child {
     ///
     /// Fills `self.buffer` and returns the number of bytes written or an error.
     fn read(&mut self, stream: StreamType) -> Result<usize, Error> {
-        let result = match stream {
-            StreamType::Stdout => self.stdout.read(&mut self.buffer),
-            StreamType::Stderr => self.stderr.read(&mut self.buffer),
-        };
+        self.state = State::Reading(stream);
 
-        // FIXME treat count == 0 like io::ErrorKind::WouldBlock?
-        let count = match result {
-            Ok(count) => count,
-            Err(error) => {
-                // FIXME EINTR?
-                if error.kind() == io::ErrorKind::WouldBlock {
+        // Loop is only for the case where the read() get EINTR.
+        loop {
+            let result = match stream {
+                StreamType::Stdout => self.stdout.read(&mut self.buffer),
+                StreamType::Stderr => self.stderr.read(&mut self.buffer),
+            };
+
+            return match result {
+                Ok(count) => {
+                    trace!(
+                        "{stream:?}: read {count} bytes: {:?}",
+                        &self.buffer[..count].as_bstr()
+                    );
+
+                    if count != self.buffer.len() {
+                        // read() didn’t fill the buffer, so we should check any
+                        // other events poll() returned and then try poll()
+                        // again. We could try reading again, but if there was
+                        // already data available on another stream and then
+                        // data was added to the current stream then we would
+                        // read it out of order.
+                        self.state = State::Polling;
+                    }
+
+                    Ok(count)
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                     // Done reading.
                     trace!("{stream:?}: io::ErrorKind::WouldBlock");
                     self.state = State::Polling;
-                    return Ok(0);
-                } else {
-                    // FIXME? should we set state?
-                    self.state = State::Reading(stream);
-                    return Err(Error::Read { error, stream });
+                    Ok(0)
                 }
-            }
-        };
-
-        trace!(
-            "{stream:?}: read {count} bytes: {:?}",
-            &self.buffer[..count].as_bstr()
-        );
-
-        if count == self.buffer.len() {
-            // read() filled the buffer so there’s likely more to read.
-            self.state = State::Reading(stream);
-        } else {
-            // read() didn’t fill the buffer, so we should check any other
-            // events poll() returned and then try poll() again. We could try
-            // reading again, but if there was already data available on another
-            // stream and then data was added to the current stream then we
-            // would read it out of order.
-            self.state = State::Polling;
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {
+                    // Try again.
+                    trace!("{stream:?}: io::ErrorKind::Interrupted");
+                    continue;
+                }
+                Err(error) => {
+                    Err(Error::Read { error, stream })
+                }
+            };
         }
-
-        Ok(count)
     }
 }
 
