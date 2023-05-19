@@ -1,10 +1,13 @@
 use crate::command::{Child, Command, Event};
 use log::info;
+use std::cell::RefCell;
 use std::ffi::OsString;
+use std::fmt;
 use std::fs;
 use std::io::{self, Write};
 use std::iter;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::time::Instant;
 use time::format_description::well_known::{iso8601, Iso8601};
 use time::OffsetDateTime;
@@ -33,14 +36,20 @@ const FILE_NAME_DATE_FORMAT: iso8601::EncodedConfig = iso8601::Config::DEFAULT
 /// ```
 #[derive(Debug)]
 pub struct JobLogger {
+    destinations: Vec<Destination>,
     start_instant: Instant,
     start_time: OffsetDateTime,
-    destination: Destination,
     command: Option<Command>,
     child_id: Option<u32>,
 
     /// If the last output from the child did *not* end with a newline.
     continued_line: bool,
+
+    /// If initialization has run (should happen on first write).
+    ///
+    /// Initialization includes creating a log file if the destination is a
+    /// directory and writing the metadata header.
+    initialized: bool,
 }
 
 impl Default for JobLogger {
@@ -53,13 +62,14 @@ impl JobLogger {
     /// Create a new job logger that will silently discard all logs.
     pub fn none() -> Self {
         JobLogger {
+            destinations: vec![],
             start_instant: Instant::now(),
             start_time: OffsetDateTime::now_local()
                 .unwrap_or_else(|_| OffsetDateTime::now_utc()),
-            destination: Destination::None,
             command: None,
             child_id: None,
             continued_line: false,
+            initialized: false,
         }
     }
 
@@ -69,36 +79,63 @@ impl JobLogger {
     /// The directory must already exist.
     pub fn new_in_directory<P: Into<PathBuf>>(path: P) -> Self {
         let mut job_logger = Self::none();
-        job_logger.destination = Destination::Directory(path.into());
+        job_logger.add_destination(Destination::Directory(path.into()));
         job_logger
     }
 
-    /// Ensure the log file (if appropriate) is open.
+    /// Add a destination
+    pub fn add_destination(&mut self, destination: Destination) -> &Self {
+        self.destinations.push(destination);
+        self
+    }
+
+    /// Ensure initialization is done.
     ///
-    /// This returns `Ok(())` is the logger is configured with the `None`
-    /// destination.
-    pub fn ensure_open(&mut self) -> anyhow::Result<()> {
-        if let Destination::Directory(path) = &self.destination {
-            info!("Saving job output to {path:?}");
-            self.destination = self.create_file_in_directory(path)?;
-            self.write_file_header()?;
+    /// This is called on every write, but does nothing after the first call. It
+    /// creates log files for all [`Destination::Directory`]s, and writes the
+    /// metadata header.
+    pub fn initialize(&mut self) -> anyhow::Result<()> {
+        if self.initialized {
+            return Ok(());
         }
+
+        // Prevent this from being called from within itself.
+        self.initialized = true;
+
+        let mut todo = Vec::new();
+        for (i, destination) in self.destinations.iter().enumerate() {
+            if let Destination::Directory(path) = destination {
+                todo.push((i, path.to_owned()));
+            }
+        }
+
+        for (i, path) in todo {
+            info!("Saving job output to {path:?}");
+            self.destinations[i] = self.create_file_in_directory(&path)?;
+        }
+
+        self.write_file_header()?;
 
         Ok(())
     }
 
-    /// Get the path to the log file, if available.
+    /// Get the paths to any log files, if available.
     ///
-    /// You may wish to call [`Self::ensure_open()`] first to make sure that
+    /// You may wish to call [`Self::initialize()`] first to make sure that
     /// the file has been created. If the logger was created by
     /// [`Self::new_in_directory()`] but nothing has been logged, then the file
-    /// will not have been created and this will return `None`.
-    pub fn path(&self) -> Option<&Path> {
-        if let Destination::File { path, .. } = &self.destination {
-            Some(path)
-        } else {
-            None
-        }
+    /// will not have been created and this will return an empty `Vec`.
+    pub fn paths(&self) -> Vec<&PathBuf> {
+        self.destinations
+            .iter()
+            .filter_map(|destination| {
+                if let Destination::File { path, .. } = &destination {
+                    Some(path)
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 
     /// Record the [`Command`] to run.
@@ -185,10 +222,17 @@ impl JobLogger {
         output
     }
 
-    /// Private: write raw data to `self.destination`.
+    /// Private: write raw data to everything in `self.destinations`.
     fn write_all(&mut self, data: &[u8]) -> anyhow::Result<()> {
-        self.ensure_open()?;
-        Ok(self.destination.write_all(data)?)
+        self.initialize()?;
+
+        // FIXME? should this write to all destinations even if one returns
+        // an error?
+        for destination in self.destinations.iter_mut() {
+            destination.write_all(data)?;
+        }
+
+        Ok(())
     }
 
     /// Private: write standard header to log file.
@@ -202,6 +246,7 @@ impl JobLogger {
                 .as_bytes(),
             )?;
         }
+
         let start = self.start_time.format(&Iso8601::DEFAULT)?;
         self.write_all(format!("Start: {start}\n\n").as_bytes())
     }
@@ -285,7 +330,6 @@ fn exclusive_create_file(path: &Path) -> io::Result<fs::File> {
 }
 
 /// Where logs should go.
-#[derive(Debug)]
 pub enum Destination {
     /// Logs are discarded.
     None,
@@ -301,11 +345,32 @@ pub enum Destination {
         /// The actual open file.
         file: fs::File,
     },
+
+    /// A stream, e.g. stdout.
+    Stream(Box<Rc<RefCell<dyn io::Write>>>),
 }
 
 impl Default for Destination {
     fn default() -> Self {
         Self::None
+    }
+}
+
+impl fmt::Debug for Destination {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::None => f.write_str("Destination::None"),
+            Self::Directory(path) => f
+                .debug_tuple("Destination::Directory")
+                .field(&path)
+                .finish(),
+            Self::File { path, file } => f
+                .debug_struct("Destination::File")
+                .field("path", &path)
+                .field("file", &file)
+                .finish(),
+            Self::Stream(_) => f.write_str("Destination::Stream(_)"),
+        }
     }
 }
 
@@ -320,6 +385,7 @@ impl io::Write for Destination {
                 );
             }
             Self::File { file, .. } => file.write(buffer),
+            Self::Stream(writer) => writer.borrow_mut().write(buffer),
         }
     }
 
@@ -333,6 +399,7 @@ impl io::Write for Destination {
                 );
             }
             Self::File { file, .. } => file.flush(),
+            Self::Stream(writer) => writer.borrow_mut().flush(),
         }
     }
 }
@@ -342,8 +409,24 @@ mod tests {
     use super::*;
     use anyhow::anyhow;
     use assert2::{check, let_assert};
-    use regex::Regex;
+    use bstr::ByteSlice;
+    use regex::{bytes, Regex};
+    use std::cell::RefCell;
+    use std::rc::Rc;
     use tempfile::tempdir;
+
+    /// Process special matchers in regular expression:
+    ///
+    ///   * <date> becomes \d{4}-\d{2}-\d{2}
+    ///   * <time> becomes \d{2}:\d{2}:\d{2}-\d{2}:\d{2}
+    ///   * <time+> becomes \d{2}:\d{2}:\d{2}\.\d+-\d{2}:\d{2}
+    ///   * \d becomes [0-9]
+    fn expand_re(re: &str) -> String {
+        re.replace("<date>", r"\d{4}-\d{2}-\d{2}")
+            .replace("<time>", r"\d{2}:\d{2}:\d{2}(Z|-\d{2}:\d{2})")
+            .replace("<time+>", r"\d{2}:\d{2}:\d{2}\.\d+(Z|-\d{2}:\d{2})")
+            .replace(r"\d", "[0-9]")
+    }
 
     /// Check the log file name for a logger.
     ///
@@ -351,20 +434,17 @@ mod tests {
     ///   * <date> becomes [0-9]{4}-[0-9]{2}-[0-9]{2}
     ///   * <time> becomes [0-9]{2}:[0-9]{2}:[0-9]{2}-[0-9]{2}:[0-9]{2}
     fn check_file_name(logger: &JobLogger, re: &str) {
-        let path = logger.path().expect("no path to log file");
-        check!(path.exists());
-        let file_name = path.file_name().expect("log file path is not a file");
-        let file_name = file_name.to_string_lossy();
-
-        let re = re.replace("<date>", "[0-9]{4}-[0-9]{2}-[0-9]{2}").replace(
-            "<time>",
-            "[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|-[0-9]{2}:[0-9]{2})",
-        );
-        let re = Regex::new(&re).unwrap();
-        check!(
-            re.is_match(file_name.as_ref()),
-            "log file name {file_name:?} does not match {re:?}"
-        );
+        for path in logger.paths() {
+            check!(path.exists());
+            let file_name =
+                path.file_name().expect("log file path is not a file");
+            let file_name = file_name.to_string_lossy();
+            let re = Regex::new(&expand_re(re)).unwrap();
+            check!(
+                re.is_match(file_name.as_ref()),
+                "log file name {file_name:?} does not match {re:?}"
+            );
+        }
     }
 
     #[test]
@@ -377,17 +457,70 @@ mod tests {
     }
 
     #[test]
+    fn stream_logger() {
+        let buffer = b"abc\n";
+        let output = Rc::new(RefCell::new(Vec::with_capacity(1024)));
+
+        let mut logger = JobLogger::none();
+        logger.add_destination(Destination::Stream(Box::new(output.clone())));
+        check!(logger.paths().is_empty());
+
+        check!(logger.log_event(&Event::Stdout(&buffer[..])).is_ok());
+        check!(logger.log_wrapper_error(&anyhow!("uh oh")).is_ok());
+
+        check!(logger.paths().is_empty());
+        check!(!output.borrow().contains(&0u8));
+
+        // Output should look like:
+        //
+        //     Start: 2023-05-19T22:17:04.858177000-07:00
+        //
+        //     0.000 out abc
+        //     0.000 \ WRAPPER-ERROR uh oh
+        //
+        let re = bytes::Regex::new(&expand_re(
+            "^Start: <date>T<time+>\n\
+            \n\
+            \\d\\.\\d{3} out abc\n\
+            \\d\\.\\d{3} \\\\ WRAPPER-ERROR uh oh\n$",
+        ))
+        .unwrap();
+        check!(
+            re.is_match(&output.borrow()),
+            "output {:?} does not match {re:?}",
+            output.borrow().as_bstr()
+        );
+    }
+
+    #[test]
     fn directory_logger_no_metadata() {
         let directory = tempdir().unwrap();
         let buffer = b"abc\n";
 
         let mut logger = JobLogger::new_in_directory(directory.path());
-        check!(logger.path().is_none());
+        check!(logger.paths().is_empty());
 
         check!(logger.log_event(&Event::Stdout(&buffer[..])).is_ok());
         check!(logger.log_wrapper_error(&anyhow!("uh oh")).is_ok());
 
         check_file_name(&logger, r"^<date>T<time>\.log$");
+    }
+
+    #[test]
+    fn directory_and_stream_loggers() {
+        let directory = tempdir().unwrap();
+        let buffer = b"abc\n";
+        let output = Rc::new(RefCell::new(Vec::with_capacity(1024)));
+
+        let mut logger = JobLogger::new_in_directory(directory.path());
+        logger.add_destination(Destination::Stream(Box::new(output.clone())));
+        check!(logger.paths().is_empty());
+
+        check!(logger.log_event(&Event::Stdout(&buffer[..])).is_ok());
+        check!(logger.log_wrapper_error(&anyhow!("uh oh")).is_ok());
+
+        check_file_name(&logger, r"^<date>T<time>\.log$");
+        check!(output.borrow().starts_with(b"Start: "));
     }
 
     #[test]
@@ -398,7 +531,7 @@ mod tests {
 
         let mut logger = JobLogger::new_in_directory(directory.path());
         logger.set_command(&command);
-        check!(logger.path().is_none());
+        check!(logger.paths().is_empty());
 
         check!(logger.log_event(&Event::Stdout(&buffer[..])).is_ok());
         check!(logger.log_wrapper_error(&anyhow!("uh oh")).is_ok());
@@ -416,7 +549,7 @@ mod tests {
         let mut logger = JobLogger::new_in_directory(directory.path());
         logger.set_command(&command);
         logger.set_child(&child);
-        check!(logger.path().is_none());
+        check!(logger.paths().is_empty());
 
         let _ = child.process_mut().wait(); // Just for cleanliness.
 
@@ -432,26 +565,28 @@ mod tests {
         let buffer = b"abc\n";
 
         let mut logger = JobLogger::new_in_directory(directory.path());
-        check!(logger.path().is_none());
+        check!(logger.paths().is_empty());
         check!(logger.log_event(&Event::Stdout(&buffer[..])).is_ok());
         check_file_name(&logger, r"^<date>T<time>\.log$");
 
         // Valid attempts.
         for i in 1..100 {
-            // Reset destination. This is the easiest way to get the logger to
+            // Reset destinations. This is the easiest way to get the logger to
             // generate an identical name for the log file.
-            logger.destination =
-                Destination::Directory(directory.path().to_path_buf());
-            check!(logger.path().is_none());
+            logger.initialized = false;
+            logger.destinations =
+                vec![Destination::Directory(directory.path().to_path_buf())];
+            check!(logger.paths().is_empty());
             check!(logger.log_event(&Event::Stdout(&buffer[..])).is_ok());
             check_file_name(&logger, &format!(r"^<date>T<time>\.{i}\.log$"));
         }
 
-        // Reset destination. This is the easiest way to get the logger to
+        // Reset destinations. This is the easiest way to get the logger to
         // generate an identical name for the log file.
-        logger.destination =
-            Destination::Directory(directory.path().to_path_buf());
-        check!(logger.path().is_none());
+        logger.initialized = false;
+        logger.destinations =
+            vec![Destination::Directory(directory.path().to_path_buf())];
+        check!(logger.paths().is_empty());
 
         let_assert!(Err(error) = logger.log_event(&Event::Stdout(&buffer[..])));
         let_assert!(Some(error) = error.downcast_ref::<io::Error>());

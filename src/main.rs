@@ -3,17 +3,18 @@
 use anyhow::{bail, Context};
 use clap::Parser;
 use cron_wrapper::command::{Command, Event};
-use cron_wrapper::job_logger::JobLogger;
+use cron_wrapper::job_logger::{Destination, JobLogger};
 use cron_wrapper::pause_writer::PausableWriter;
-use log::Level::Trace;
-use log::{debug, error, info, log_enabled};
+use log::{debug, error, info};
 use simplelog::{
     ColorChoice, CombinedLogger, Config, ConfigBuilder, LevelFilter,
     TermLogger, TerminalMode,
 };
+use std::cell::RefCell;
 use std::fs;
 use std::io::{self, Write};
 use std::process;
+use std::rc::Rc;
 
 mod params;
 use params::Params;
@@ -51,39 +52,43 @@ fn start(params: Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
     let mut child = command.spawn()?;
     job_logger.set_child(&child);
 
-    let mut out = PausableWriter::new(io::stdout());
-    if params.suppress_output() {
-        out.pause();
+    let out = Rc::new(RefCell::new(PausableWriter::new(io::stdout())));
+    if params.pause_output_initially() {
+        out.borrow_mut().pause();
     } else {
-        out.unpause()?;
+        out.borrow_mut().unpause()?;
+    }
+
+    if params.log_stdout {
+        job_logger.add_destination(Destination::Stream(Box::new(out.clone())));
     }
 
     while let Some(event) = child.next_event() {
         job_logger.log_event(&event)?;
         match event {
             Event::Stdout(output) => {
-                if !output.is_empty() && !log_enabled!(Trace) {
-                    out.write_all(output)?;
-                    out.flush()?; // In case there wasn’t a newline.
+                if !output.is_empty() && params.normal_output_enabled() {
+                    out.borrow_mut().write_all(output)?;
+                    out.borrow_mut().flush()?; // In case there wasn’t a newline.
                 }
             }
             Event::Stderr(output) => {
-                if !output.is_empty() && !log_enabled!(Trace) {
-                    if params.on_error && out.is_paused() {
-                        debug!("--on-error enabled: unpausing output");
-                        out.unpause()?;
-                    }
+                if params.on_error && out.borrow().is_paused() {
+                    debug!("--on-error enabled: unpausing output");
+                    out.borrow_mut().unpause()?;
+                }
 
-                    out.write_all(output)?;
-                    out.flush()?; // In case there wasn’t a newline.
+                if !output.is_empty() && params.normal_output_enabled() {
+                    out.borrow_mut().write_all(output)?;
+                    out.borrow_mut().flush()?; // In case there wasn’t a newline.
                 }
             }
             Event::Exit(_) => {
                 let code = event.exit_code().expect("no exit code for child");
 
-                if code != 0 && params.on_fail && out.is_paused() {
+                if code != 0 && params.on_fail && out.borrow().is_paused() {
                     debug!("--on-fail enabled: unpausing output");
-                    out.unpause()?;
+                    out.borrow_mut().unpause()?;
                 }
 
                 if params.show_exit_code || (params.show_fail_code && code != 0)
@@ -97,7 +102,9 @@ fn start(params: Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
             Event::Error(error) => {
                 // Don’t return this error since that will cause it to be logged
                 // again as a “wrapper” error.
-                eprintln!("Error: {:#}", error);
+                if params.normal_output_enabled() {
+                    eprintln!("Error: {:#}", error);
+                }
                 process::exit(1);
             }
         }
