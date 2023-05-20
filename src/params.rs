@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use clap::Parser;
+use log::{log_enabled, Level::Trace};
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -40,6 +41,12 @@ pub(crate) struct Params {
     #[clap(short = 'l', long, value_name = "DIRECTORY")]
     pub log_dir: Option<PathBuf>,
 
+    /// Output structured log to stdout instead of normal output
+    ///
+    /// This honors --on-error and --on-fail, and can be used with --log-dir.
+    #[clap(short = 's', long)]
+    pub log_stdout: bool,
+
     /// Verbosity (may be repeated up to three times)
     #[clap(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
@@ -73,9 +80,14 @@ pub(crate) struct Params {
 }
 
 impl Params {
-    /// Whether or not to suppress normal output
-    pub fn suppress_output(&self) -> bool {
+    /// Pause output until a condition is met.
+    pub fn pause_output_initially(&self) -> bool {
         self.on_error || self.on_fail
+    }
+
+    /// Suppress normal output in favor of some other output.
+    pub fn normal_output_enabled(&self) -> bool {
+        !log_enabled!(Trace) && !self.log_stdout
     }
 }
 
