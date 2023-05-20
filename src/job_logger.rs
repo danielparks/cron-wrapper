@@ -143,7 +143,8 @@ impl JobLogger {
         let indent = time.len() + 5;
         let value = self.escape(value, indent);
 
-        let mut buffer = vec![0u8; time.len() + kind.len() + value.len() + 5];
+        let mut buffer =
+            Vec::with_capacity(time.len() + kind.len() + value.len() + 5);
         buffer.extend_from_slice(time.as_bytes());
 
         if self.continued_line {
@@ -162,7 +163,7 @@ impl JobLogger {
     /// Private: escape bytes for output as a value in an event.
     fn escape(&mut self, input: &[u8], indent: usize) -> Vec<u8> {
         let indent: Vec<u8> = iter::repeat(b' ').take(indent).collect();
-        let mut output = vec![0u8; input.len()];
+        let mut output = Vec::with_capacity(input.len());
         if let Some((&last, inpu)) = input.split_last() {
             for &b in inpu {
                 output.push(b);
