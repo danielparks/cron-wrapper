@@ -347,7 +347,7 @@ pub enum Destination {
     },
 
     /// A stream, e.g. stdout.
-    Stream(Box<Rc<RefCell<dyn io::Write>>>),
+    Stream(Rc<RefCell<dyn io::Write>>),
 }
 
 impl Default for Destination {
@@ -462,7 +462,7 @@ mod tests {
         let output = Rc::new(RefCell::new(Vec::with_capacity(1024)));
 
         let mut logger = JobLogger::none();
-        logger.add_destination(Destination::Stream(Box::new(output.clone())));
+        logger.add_destination(Destination::Stream(output.clone()));
         check!(logger.paths().is_empty());
 
         check!(logger.log_event(&Event::Stdout(&buffer[..])).is_ok());
@@ -513,7 +513,7 @@ mod tests {
         let output = Rc::new(RefCell::new(Vec::with_capacity(1024)));
 
         let mut logger = JobLogger::new_in_directory(directory.path());
-        logger.add_destination(Destination::Stream(Box::new(output.clone())));
+        logger.add_destination(Destination::Stream(output.clone()));
         check!(logger.paths().is_empty());
 
         check!(logger.log_event(&Event::Stdout(&buffer[..])).is_ok());
