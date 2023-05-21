@@ -60,7 +60,7 @@ fn start(params: Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
     }
 
     if params.log_stdout {
-        job_logger.add_destination(Destination::Stream(Box::new(out.clone())));
+        job_logger.add_destination(Destination::Stream(out.clone()));
     }
 
     while let Some(event) = child.next_event() {
