@@ -68,8 +68,9 @@ fn start(params: Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
         match event {
             Event::Stdout(output) => {
                 if !output.is_empty() && params.normal_output_enabled() {
-                    out.borrow_mut().write_all(output)?;
-                    out.borrow_mut().flush()?; // In case there wasn’t a newline.
+                    let mut out = out.borrow_mut();
+                    out.write_all(output)?;
+                    out.flush()?; // In case there wasn’t a newline.
                 }
             }
             Event::Stderr(output) => {
@@ -79,8 +80,9 @@ fn start(params: Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
                 }
 
                 if !output.is_empty() && params.normal_output_enabled() {
-                    out.borrow_mut().write_all(output)?;
-                    out.borrow_mut().flush()?; // In case there wasn’t a newline.
+                    let mut out = out.borrow_mut();
+                    out.write_all(output)?;
+                    out.flush()?; // In case there wasn’t a newline.
                 }
             }
             Event::Exit(_) => {
