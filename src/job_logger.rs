@@ -157,23 +157,23 @@ impl JobLogger {
         &mut self,
         error: &anyhow::Error,
     ) -> anyhow::Result<()> {
-        self.write_record("WRAPPER-ERROR", format!("{error:?}").as_bytes())
+        self.write_record(Kind::WrapperError, format!("{error:?}").as_bytes())
     }
 
     /// Log an [`Event`] received from the [`Child`].
     pub fn log_event(&mut self, event: &Event) -> anyhow::Result<()> {
         match &event {
-            Event::Stdout(output) => self.write_record("out", output),
-            Event::Stderr(output) => self.write_record("err", output),
+            Event::Stdout(output) => self.write_record(Kind::Stdout, output),
+            Event::Stderr(output) => self.write_record(Kind::Stderr, output),
             Event::Exit(_) => {
                 if let Some(code) = event.exit_code() {
-                    self.write_record("exit", code.to_string().as_bytes())
+                    self.write_record(Kind::Exit, code.to_string().as_bytes())
                 } else {
-                    self.write_record("exit", b"none")
+                    self.write_record(Kind::Exit, b"none")
                 }
             }
             Event::Error(error) => {
-                self.write_record("ERROR", format!("{error:?}").as_bytes())
+                self.write_record(Kind::Error, format!("{error:?}").as_bytes())
             }
         }
     }
@@ -193,7 +193,7 @@ impl JobLogger {
     }
 
     /// Private: write a record in the log file.
-    fn write_record(&mut self, kind: &str, value: &[u8]) -> anyhow::Result<()> {
+    fn write_record(&mut self, kind: Kind, value: &[u8]) -> anyhow::Result<()> {
         if !self.finished_metadata {
             self.write_all(b"\n")?;
             self.finished_metadata = true;
@@ -202,8 +202,9 @@ impl JobLogger {
         let time = format!("{:.3}", self.elapsed());
         let indent = time.len() + 5;
 
-        let mut buffer =
-            Vec::with_capacity(time.len() + kind.len() + value.len() + 5);
+        let mut buffer = Vec::with_capacity(
+            time.len() + kind.as_bytes().len() + value.len() + 5,
+        );
         buffer.extend_from_slice(time.as_bytes());
 
         if self.continued_line {
@@ -216,8 +217,8 @@ impl JobLogger {
         let newline = self.escape_into(value, indent, &mut buffer);
         buffer.push(b'\n');
 
-        if kind == "out" || kind == "err" {
-            // We only care if output ends with a newline.
+        if kind.is_output() {
+            // We only care about trailing newlines for output records.
             self.continued_line = !newline;
         }
 
@@ -436,6 +437,34 @@ impl io::Write for Destination {
             Self::File { file, .. } => file.flush(),
             Self::Stream(writer) => writer.borrow_mut().flush(),
         }
+    }
+}
+
+/// Used to keep track of how various event types should be displayed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Kind {
+    Stdout,
+    Stderr,
+    Exit,
+    Error,
+    WrapperError,
+}
+
+impl Kind {
+    /// Serialize to a byte string.
+    fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Stdout => b"out",
+            Self::Stderr => b"err",
+            Self::Exit => b"exit",
+            Self::Error => b"ERROR",
+            Self::WrapperError => b"WRAPPER-ERROR",
+        }
+    }
+
+    /// Is this an output (stdout or stderr)?
+    fn is_output(&self) -> bool {
+        matches!(self, Self::Stdout | Self::Stderr)
     }
 }
 
