@@ -1,7 +1,9 @@
 use anyhow::anyhow;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
+use is_terminal::IsTerminal;
 use log::{log_enabled, Level::Trace};
 use std::ffi::OsString;
+use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -47,6 +49,10 @@ pub(crate) struct Params {
     #[clap(short = 's', long)]
     pub log_stdout: bool,
 
+    /// Whether or not to output in color
+    #[clap(long, default_value = "auto", value_name = "WHEN")]
+    pub color: ColorChoice,
+
     /// Verbosity (may be repeated up to three times)
     #[clap(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
@@ -89,6 +95,15 @@ impl Params {
     pub fn normal_output_enabled(&self) -> bool {
         !log_enabled!(Trace) && !self.log_stdout
     }
+
+    /// Whether or not to output in color. Checks if stdout is a terminal.
+    pub fn color_choice(&self) -> termcolor::ColorChoice {
+        if self.color == ColorChoice::Auto && !io::stdout().is_terminal() {
+            termcolor::ColorChoice::Never
+        } else {
+            self.color.into()
+        }
+    }
 }
 
 fn parse_duration(input: &str) -> anyhow::Result<Duration> {
@@ -108,6 +123,35 @@ fn parse_duration(input: &str) -> anyhow::Result<Duration> {
             Ok(duration)
         } else {
             Err(anyhow!("duration cannot be more precise than milliseconds"))
+        }
+    }
+}
+
+/// Whether or not to output in color
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+pub enum ColorChoice {
+    /// Output in color when running in a terminal that supports it
+    Auto,
+
+    /// Always output in color
+    Always,
+
+    /// Never output in color
+    Never,
+}
+
+impl Default for ColorChoice {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
+impl From<ColorChoice> for termcolor::ColorChoice {
+    fn from(choice: ColorChoice) -> Self {
+        match choice {
+            ColorChoice::Auto => termcolor::ColorChoice::Auto,
+            ColorChoice::Always => termcolor::ColorChoice::Always,
+            ColorChoice::Never => termcolor::ColorChoice::Never,
         }
     }
 }
