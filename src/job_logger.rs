@@ -437,23 +437,20 @@ mod tests {
 
     #[test]
     fn none_logger() {
-        let buffer = b"abc\n";
-
         let mut logger = JobLogger::none();
-        check!(logger.log_event(&Event::Stdout(&buffer[..])).is_ok());
+        check!(logger.log_event(&Event::Stdout(b"abc\n")).is_ok());
         check!(logger.log_wrapper_error(&anyhow!("uh oh")).is_ok());
     }
 
     #[test]
     fn stream_logger() {
-        let buffer = b"abc\n";
         let output = Rc::new(RefCell::new(Vec::with_capacity(1024)));
 
         let mut logger = JobLogger::none();
         logger.add_destination(Destination::Stream(output.clone()));
         check!(logger.paths().is_empty());
 
-        check!(logger.log_event(&Event::Stdout(&buffer[..])).is_ok());
+        check!(logger.log_event(&Event::Stdout(b"abc\n")).is_ok());
         check!(logger.log_wrapper_error(&anyhow!("uh oh")).is_ok());
 
         check!(logger.paths().is_empty());
@@ -483,12 +480,11 @@ mod tests {
     #[test]
     fn directory_logger_no_metadata() {
         let directory = tempdir().unwrap();
-        let buffer = b"abc\n";
 
         let mut logger = JobLogger::new_in_directory(directory.path());
         check!(logger.paths().is_empty());
 
-        check!(logger.log_event(&Event::Stdout(&buffer[..])).is_ok());
+        check!(logger.log_event(&Event::Stdout(b"abc\n")).is_ok());
         check!(logger.log_wrapper_error(&anyhow!("uh oh")).is_ok());
 
         check_file_name(&logger, r"^<date>T<time>\.log$");
@@ -497,14 +493,13 @@ mod tests {
     #[test]
     fn directory_and_stream_loggers() {
         let directory = tempdir().unwrap();
-        let buffer = b"abc\n";
         let output = Rc::new(RefCell::new(Vec::with_capacity(1024)));
 
         let mut logger = JobLogger::new_in_directory(directory.path());
         logger.add_destination(Destination::Stream(output.clone()));
         check!(logger.paths().is_empty());
 
-        check!(logger.log_event(&Event::Stdout(&buffer[..])).is_ok());
+        check!(logger.log_event(&Event::Stdout(b"abc\n")).is_ok());
         check!(logger.log_wrapper_error(&anyhow!("uh oh")).is_ok());
 
         check_file_name(&logger, r"^<date>T<time>\.log$");
@@ -514,14 +509,13 @@ mod tests {
     #[test]
     fn directory_logger_with_command() {
         let directory = tempdir().unwrap();
-        let buffer = b"abc\n";
         let command = Command::new("/bin/ls", ["/"]);
 
         let mut logger = JobLogger::new_in_directory(directory.path());
         logger.set_command(&command);
         check!(logger.paths().is_empty());
 
-        check!(logger.log_event(&Event::Stdout(&buffer[..])).is_ok());
+        check!(logger.log_event(&Event::Stdout(b"abc\n")).is_ok());
         check!(logger.log_wrapper_error(&anyhow!("uh oh")).is_ok());
 
         check_file_name(&logger, r"^<date>T<time>\.ls\.log$");
@@ -530,7 +524,6 @@ mod tests {
     #[test]
     fn directory_logger_with_child() {
         let directory = tempdir().unwrap();
-        let buffer = b"abc\n";
         let command = Command::new("/bin/ls", ["/"]);
         let mut child = command.spawn().unwrap();
 
@@ -541,7 +534,7 @@ mod tests {
 
         let _ = child.process_mut().wait(); // Just for cleanliness.
 
-        check!(logger.log_event(&Event::Stdout(&buffer[..])).is_ok());
+        check!(logger.log_event(&Event::Stdout(b"abc\n")).is_ok());
         check!(logger.log_wrapper_error(&anyhow!("uh oh")).is_ok());
 
         check_file_name(&logger, r"^<date>T<time>\.ls\.[0-9]+\.log$");
@@ -550,11 +543,10 @@ mod tests {
     #[test]
     fn directory_logger_conflicting_file_name() {
         let directory = tempdir().unwrap();
-        let buffer = b"abc\n";
 
         let mut logger = JobLogger::new_in_directory(directory.path());
         check!(logger.paths().is_empty());
-        check!(logger.log_event(&Event::Stdout(&buffer[..])).is_ok());
+        check!(logger.log_event(&Event::Stdout(b"abc\n")).is_ok());
         check_file_name(&logger, r"^<date>T<time>\.log$");
 
         // Valid attempts.
@@ -565,7 +557,7 @@ mod tests {
             logger.destinations =
                 vec![Destination::Directory(directory.path().to_path_buf())];
             check!(logger.paths().is_empty());
-            check!(logger.log_event(&Event::Stdout(&buffer[..])).is_ok());
+            check!(logger.log_event(&Event::Stdout(b"abc\n")).is_ok());
             check_file_name(&logger, &format!(r"^<date>T<time>\.{i}\.log$"));
         }
 
@@ -576,7 +568,7 @@ mod tests {
             vec![Destination::Directory(directory.path().to_path_buf())];
         check!(logger.paths().is_empty());
 
-        let_assert!(Err(error) = logger.log_event(&Event::Stdout(&buffer[..])));
+        let_assert!(Err(error) = logger.log_event(&Event::Stdout(b"abc\n")));
         let_assert!(Some(error) = error.downcast_ref::<io::Error>());
         check!(error.kind() == io::ErrorKind::AlreadyExists);
     }
