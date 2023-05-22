@@ -42,6 +42,9 @@ pub struct JobLogger {
     command: Option<Command>,
     child_id: Option<u32>,
 
+    /// If we’ve finished writing log metadata and the trailing empty line.
+    finished_metadata: bool,
+
     /// If the last output from the child did *not* end with a newline.
     continued_line: bool,
 
@@ -68,6 +71,7 @@ impl JobLogger {
                 .unwrap_or_else(|_| OffsetDateTime::now_utc()),
             command: None,
             child_id: None,
+            finished_metadata: false,
             continued_line: false,
             initialized: false,
         }
@@ -176,9 +180,13 @@ impl JobLogger {
 
     /// Private: write a record in the log file.
     fn write_record(&mut self, kind: &str, value: &[u8]) -> anyhow::Result<()> {
+        if !self.finished_metadata {
+            self.write_all(b"\n")?;
+            self.finished_metadata = true;
+        }
+
         let time = format!("{:.3}", self.elapsed());
         let indent = time.len() + 5;
-        let value = self.escape(value, indent);
 
         let mut buffer =
             Vec::with_capacity(time.len() + kind.len() + value.len() + 5);
@@ -191,16 +199,47 @@ impl JobLogger {
         buffer.push(b' ');
         buffer.extend_from_slice(kind.as_bytes());
         buffer.push(b' ');
-        buffer.extend_from_slice(&value);
+        let newline = self.escape_into(value, indent, &mut buffer);
+        buffer.push(b'\n');
+
+        if kind == "out" || kind == "err" {
+            // We only care if output ends with a newline.
+            self.continued_line = !newline;
+        }
+
+        self.write_all(&buffer)
+    }
+
+    /// Private: write a metadata line to the top of the log file.
+    fn write_metadata(
+        &mut self,
+        key: &str,
+        value: &[u8],
+    ) -> anyhow::Result<()> {
+        if self.finished_metadata {
+            // FIXME? Should this be an error?
+            panic!("Tried to write metadata after a record.");
+        }
+
+        let mut buffer = Vec::with_capacity(key.len() + 2 + value.len() + 1);
+        buffer.extend_from_slice(key.as_bytes());
+        buffer.extend_from_slice(b": ");
+        self.escape_into(value, 4, &mut buffer); // Ignore trailing newlines.
         buffer.push(b'\n');
 
         self.write_all(&buffer)
     }
 
-    /// Private: escape bytes for output as a value in an event.
-    fn escape(&mut self, input: &[u8], indent: usize) -> Vec<u8> {
+    /// Private: escape value for metadata or record in the output buffer.
+    ///
+    /// Returns true if the output ended with a newline.
+    fn escape_into(
+        &self,
+        input: &[u8],
+        indent: usize,
+        output: &mut Vec<u8>,
+    ) -> bool {
         let indent: Vec<u8> = iter::repeat(b' ').take(indent).collect();
-        let mut output = Vec::with_capacity(input.len());
         if let Some((&last, inpu)) = input.split_last() {
             for &b in inpu {
                 output.push(b);
@@ -212,14 +251,16 @@ impl JobLogger {
             // FIXME? CR?
             if last == b'\n' {
                 // Swallow trailing newline.
-                self.continued_line = false;
+                true
             } else {
-                self.continued_line = true;
                 output.push(last);
+                // No trailing newline.
+                false
             }
+        } else {
+            // input was empty, so no newline.
+            false
         }
-
-        output
     }
 
     /// Private: write raw data to everything in `self.destinations`.
@@ -238,17 +279,15 @@ impl JobLogger {
     /// Private: write standard header to log file.
     fn write_file_header(&mut self) -> anyhow::Result<()> {
         if let Some(command) = &self.command {
-            self.write_all(
-                format!(
-                    "Command: {:?}\n",
-                    command.command_line().collect::<Vec<_>>()
-                )
-                .as_bytes(),
+            let full_command = command.command_line().collect::<Vec<_>>();
+            self.write_metadata(
+                "Command",
+                format!("{:?}", full_command).as_bytes(),
             )?;
         }
 
         let start = self.start_time.format(&Iso8601::DEFAULT)?;
-        self.write_all(format!("Start: {start}\n\n").as_bytes())
+        self.write_metadata("Start", start.as_bytes())
     }
 
     /// Private: create a log file in a given directory.
@@ -318,6 +357,14 @@ impl JobLogger {
     /// Private: get the seconds elapsed on the run.
     fn elapsed(&self) -> f64 {
         self.start_instant.elapsed().as_secs_f64()
+    }
+
+    /// Private: reset state for output. Used for testing.
+    #[cfg(test)]
+    fn reset_output_state(&mut self) {
+        self.finished_metadata = false;
+        self.continued_line = false;
+        self.initialized = false;
     }
 }
 
@@ -395,12 +442,17 @@ impl io::Write for Destination {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::command;
+    use crate::timeout::Timeout;
     use anyhow::anyhow;
     use assert2::{check, let_assert};
     use bstr::ByteSlice;
     use regex::{bytes, Regex};
     use std::cell::RefCell;
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::ExitStatus;
     use std::rc::Rc;
+    use std::time::Duration;
     use tempfile::tempdir;
 
     /// Process special matchers in regular expression:
@@ -435,6 +487,45 @@ mod tests {
         }
     }
 
+    /// Create an IdleTimeout error event.
+    fn event_idle_timeout() -> Event<'static> {
+        Event::Error(command::Error::IdleTimeout {
+            timeout: Timeout::Expired {
+                requested: Duration::ZERO,
+                actual: Duration::ZERO,
+            },
+        })
+    }
+
+    /// Create an exit event.
+    fn event_exit(code: i32) -> Event<'static> {
+        Event::Exit(ExitStatus::from_raw(code))
+    }
+
+    /// Make a JobLogger that outputs to a buffer.
+    fn make_buffer_logger() -> (JobLogger, Rc<RefCell<Vec<u8>>>) {
+        let output = Rc::new(RefCell::new(Vec::with_capacity(1024)));
+
+        let mut logger = JobLogger::none();
+        logger.add_destination(Destination::Stream(output.clone()));
+        check!(logger.paths().is_empty());
+
+        (logger, output)
+    }
+
+    /// Check the output buffer against a regex.
+    fn check_output(output: Rc<RefCell<Vec<u8>>>, re: &str) {
+        let output = output.borrow();
+        let re = bytes::Regex::new(&expand_re(re)).unwrap();
+
+        check!(!output.contains(&0u8));
+        check!(
+            re.is_match(&output),
+            "output {:?} does not match {re:?}",
+            output.as_bstr()
+        );
+    }
+
     #[test]
     fn none_logger() {
         let mut logger = JobLogger::none();
@@ -444,36 +535,104 @@ mod tests {
 
     #[test]
     fn stream_logger() {
-        let output = Rc::new(RefCell::new(Vec::with_capacity(1024)));
-
-        let mut logger = JobLogger::none();
-        logger.add_destination(Destination::Stream(output.clone()));
-        check!(logger.paths().is_empty());
+        let (mut logger, output) = make_buffer_logger();
 
         check!(logger.log_event(&Event::Stdout(b"abc\n")).is_ok());
         check!(logger.log_wrapper_error(&anyhow!("uh oh")).is_ok());
 
         check!(logger.paths().is_empty());
-        check!(!output.borrow().contains(&0u8));
 
         // Output should look like:
         //
         //     Start: 2023-05-19T22:17:04.858177000-07:00
         //
         //     0.000 out abc
-        //     0.000 \ WRAPPER-ERROR uh oh
+        //     0.000 WRAPPER-ERROR uh oh
         //
-        let re = bytes::Regex::new(&expand_re(
+        check_output(
+            output,
             "^Start: <date>T<time+>\n\
             \n\
             \\d\\.\\d{3} out abc\n\
-            \\d\\.\\d{3} \\\\ WRAPPER-ERROR uh oh\n$",
-        ))
-        .unwrap();
-        check!(
-            re.is_match(&output.borrow()),
-            "output {:?} does not match {re:?}",
-            output.borrow().as_bstr()
+            \\d\\.\\d{3} WRAPPER-ERROR uh oh\n$",
+        );
+    }
+
+    #[test]
+    fn stream_logger_continuation() {
+        let (mut logger, output) = make_buffer_logger();
+
+        check!(logger.log_event(&Event::Stdout(b"abc")).is_ok());
+        check!(logger.log_event(&Event::Stdout(b"def")).is_ok());
+        check!(logger.log_event(&event_exit(0)).is_ok());
+
+        // Output should look like:
+        //
+        //     Start: 2023-05-19T22:17:04.858177000-07:00
+        //
+        //     0.000 out abc
+        //     0.000 \ out def
+        //     0.000 \ exit 0
+        //
+        check_output(
+            output,
+            "^Start: <date>T<time+>\n\
+            \n\
+            \\d\\.\\d{3} out abc\n\
+            \\d\\.\\d{3} \\\\ out def\n\
+            \\d\\.\\d{3} \\\\ exit 0\n$",
+        );
+    }
+
+    #[test]
+    fn stream_logger_recoverable_error() {
+        let (mut logger, output) = make_buffer_logger();
+
+        check!(logger.log_event(&Event::Stdout(b"abc\n")).is_ok());
+        check!(logger.log_event(&event_idle_timeout()).is_ok());
+        check!(logger.log_event(&Event::Stdout(b"def\n")).is_ok());
+
+        // Output should look like:
+        //
+        //     Start: 2023-05-19T22:17:04.858177000-07:00
+        //
+        //     0.000 out abc
+        //     0.000 ERROR IdleTimeout { ... }
+        //     0.000 out def
+        //
+        check_output(
+            output,
+            "^Start: <date>T<time+>\n\
+            \n\
+            \\d\\.\\d{3} out abc\n\
+            \\d\\.\\d{3} ERROR IdleTimeout.*?\n\
+            \\d\\.\\d{3} out def\n$",
+        );
+    }
+
+    #[test]
+    fn stream_logger_continuation_recoverable_error() {
+        let (mut logger, output) = make_buffer_logger();
+
+        check!(logger.log_event(&Event::Stdout(b"abc")).is_ok());
+        check!(logger.log_event(&event_idle_timeout()).is_ok());
+        check!(logger.log_event(&Event::Stdout(b"def\n")).is_ok());
+
+        // Output should look like:
+        //
+        //     Start: 2023-05-19T22:17:04.858177000-07:00
+        //
+        //     0.000 out abc
+        //     0.000 \ ERROR IdleTimeout { ... }
+        //     0.000 \ out def
+        //
+        check_output(
+            output,
+            "^Start: <date>T<time+>\n\
+            \n\
+            \\d\\.\\d{3} out abc\n\
+            \\d\\.\\d{3} \\\\ ERROR IdleTimeout.*?\n\
+            \\d\\.\\d{3} \\\\ out def\n$",
         );
     }
 
@@ -553,7 +712,7 @@ mod tests {
         for i in 1..100 {
             // Reset destinations. This is the easiest way to get the logger to
             // generate an identical name for the log file.
-            logger.initialized = false;
+            logger.reset_output_state();
             logger.destinations =
                 vec![Destination::Directory(directory.path().to_path_buf())];
             check!(logger.paths().is_empty());
@@ -563,7 +722,7 @@ mod tests {
 
         // Reset destinations. This is the easiest way to get the logger to
         // generate an identical name for the log file.
-        logger.initialized = false;
+        logger.reset_output_state();
         logger.destinations =
             vec![Destination::Directory(directory.path().to_path_buf())];
         check!(logger.paths().is_empty());
