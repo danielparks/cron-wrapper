@@ -331,9 +331,6 @@ fn exclusive_create_file(path: &Path) -> io::Result<fs::File> {
 
 /// Where logs should go.
 pub enum Destination {
-    /// Logs are discarded.
-    None,
-
     /// Create a file in the passed directory once we receive our first log.
     Directory(PathBuf),
 
@@ -350,16 +347,9 @@ pub enum Destination {
     Stream(Rc<RefCell<dyn io::Write>>),
 }
 
-impl Default for Destination {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
 impl fmt::Debug for Destination {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::None => f.write_str("Destination::None"),
             Self::Directory(path) => f
                 .debug_tuple("Destination::Directory")
                 .field(&path)
@@ -377,7 +367,6 @@ impl fmt::Debug for Destination {
 impl io::Write for Destination {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
         match self {
-            Self::None => Ok(buffer.len()),
             Self::Directory(_) => {
                 panic!(
                     "Cannot write to Destination::Directory. Use \
@@ -391,7 +380,6 @@ impl io::Write for Destination {
 
     fn flush(&mut self) -> io::Result<()> {
         match self {
-            Self::None => Ok(()),
             Self::Directory(_) => {
                 panic!(
                     "Cannot write to Destination::Directory. Use \
