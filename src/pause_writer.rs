@@ -63,6 +63,16 @@ impl<W: io::Write> PausableWriter<W> {
             self.state = State::paused();
         }
     }
+
+    /// Either pause or unpause the writer based on the parameter.
+    pub fn set_paused(&mut self, paused: bool) -> io::Result<()> {
+        if paused {
+            self.pause();
+            Ok(())
+        } else {
+            self.unpause()
+        }
+    }
 }
 
 impl<W: io::Write> Write for PausableWriter<W> {

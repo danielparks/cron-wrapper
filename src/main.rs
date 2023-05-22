@@ -53,11 +53,8 @@ fn start(params: Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
     job_logger.set_child(&child);
 
     let out = Rc::new(RefCell::new(PausableWriter::new(io::stdout())));
-    if params.pause_output_initially() {
-        out.borrow_mut().pause();
-    } else {
-        out.borrow_mut().unpause()?;
-    }
+    out.borrow_mut()
+        .set_paused(params.pause_output_initially())?;
 
     if params.log_stdout {
         job_logger.add_destination(Destination::Stream(out.clone()));
