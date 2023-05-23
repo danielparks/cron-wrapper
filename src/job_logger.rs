@@ -214,15 +214,16 @@ impl JobLogger {
         buffer.push(b' ');
         buffer.extend_from_slice(kind.as_bytes());
         buffer.push(b' ');
-        let newline = self.escape_into(value, indent, &mut buffer);
-        buffer.push(b'\n');
+        self.write_all(&buffer)?;
+
+        let newline = self.write_value(value, indent)?;
 
         if kind.is_output() {
             // We only care about trailing newlines for output records.
             self.continued_line = !newline;
         }
 
-        self.write_all(&buffer)
+        Ok(())
     }
 
     /// Private: write a metadata line to the top of the log file.
@@ -239,15 +240,33 @@ impl JobLogger {
         let mut buffer = Vec::with_capacity(key.len() + 2 + value.len() + 1);
         buffer.extend_from_slice(key.as_bytes());
         buffer.extend_from_slice(b": ");
-        self.escape_into(value, 4, &mut buffer); // Ignore trailing newlines.
-        buffer.push(b'\n');
+        self.write_all(&buffer)?;
 
-        self.write_all(&buffer)
+        self.write_value(value, 4)?;
+
+        Ok(())
+    }
+
+    /// Private: write value for metadata or record including trailing newline.
+    ///
+    /// Returns `Ok(true)` if the input ended with a newline.
+    fn write_value(
+        &mut self,
+        input: &[u8],
+        indent: usize,
+    ) -> anyhow::Result<bool> {
+        let mut output: Vec<u8> = Vec::with_capacity(input.len());
+        let newline = self.escape_into(input, indent, &mut output);
+
+        self.write_all(&output)?;
+
+        Ok(newline)
     }
 
     /// Private: escape value for metadata or record in the output buffer.
     ///
-    /// Returns true if the output ended with a newline.
+    /// Always ends output with a newline. Returns true if the input ended with
+    /// a newline.
     fn escape_into(
         &self,
         input: &[u8],
@@ -255,6 +274,7 @@ impl JobLogger {
         output: &mut Vec<u8>,
     ) -> bool {
         let indent: Vec<u8> = iter::repeat(b' ').take(indent).collect();
+
         if let Some((&last, inpu)) = input.split_last() {
             for &b in inpu {
                 output.push(b);
@@ -263,19 +283,20 @@ impl JobLogger {
                 }
             }
 
+            output.push(last);
+
             // FIXME? CR?
             if last == b'\n' {
-                // Swallow trailing newline.
-                true
-            } else {
-                output.push(last);
-                // No trailing newline.
-                false
+                // Ends with a newline; we don’t need to add our own.
+                return true;
             }
-        } else {
-            // input was empty, so no newline.
-            false
         }
+
+        // No trailing newline (input was empty or we checked the last
+        // character), so add our own newline.
+        output.push(b'\n');
+
+        false
     }
 
     /// Private: write raw data to everything in `self.destinations`.
