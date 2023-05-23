@@ -58,7 +58,7 @@ fn start(params: Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
     out.borrow_mut().set_paused(params.start_paused())?;
 
     if params.log_stdout {
-        job_logger.add_destination(Destination::Stream(out.clone()));
+        job_logger.add_destination(Destination::ColorStream(out.clone()));
     }
 
     let mut err_color = ColorSpec::new();

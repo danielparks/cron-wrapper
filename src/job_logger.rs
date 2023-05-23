@@ -9,6 +9,7 @@ use std::iter;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Instant;
+use termcolor::WriteColor;
 use time::format_description::well_known::{iso8601, Iso8601};
 use time::OffsetDateTime;
 
@@ -216,14 +217,7 @@ impl JobLogger {
         buffer.push(b' ');
         self.write_all(&buffer)?;
 
-        let newline = self.write_value(value, indent)?;
-
-        if kind.is_output() {
-            // We only care about trailing newlines for output records.
-            self.continued_line = !newline;
-        }
-
-        Ok(())
+        kind.write_value(self, value, indent)
     }
 
     /// Private: write a metadata line to the top of the log file.
@@ -303,10 +297,33 @@ impl JobLogger {
     fn write_all(&mut self, data: &[u8]) -> anyhow::Result<()> {
         self.initialize()?;
 
-        // FIXME? should this write to all destinations even if one returns
-        // an error?
+        // FIXME? apply to all destinations even if one returns an error?
         for destination in self.destinations.iter_mut() {
             destination.write_all(data)?;
+        }
+
+        Ok(())
+    }
+
+    /// Private: Set the color of the output if the destination supports it.
+    fn set_color(&mut self, spec: &termcolor::ColorSpec) -> anyhow::Result<()> {
+        self.initialize()?;
+
+        // FIXME? apply to all destinations even if one returns an error?
+        for destination in self.destinations.iter_mut() {
+            destination.set_color(spec)?;
+        }
+
+        Ok(())
+    }
+
+    /// Private: Reset the color of the output if the destination supports it.
+    fn reset_color(&mut self) -> anyhow::Result<()> {
+        self.initialize()?;
+
+        // FIXME? apply to all destinations even if one returns an error?
+        for destination in self.destinations.iter_mut() {
+            destination.reset()?;
         }
 
         Ok(())
@@ -414,6 +431,9 @@ pub enum Destination {
 
     /// A stream, e.g. stdout.
     Stream(Rc<RefCell<dyn io::Write>>),
+
+    /// A stream that might accept color, e.g. stdout.
+    ColorStream(Rc<RefCell<dyn WriteColor>>),
 }
 
 impl fmt::Debug for Destination {
@@ -429,6 +449,7 @@ impl fmt::Debug for Destination {
                 .field("file", &file)
                 .finish(),
             Self::Stream(_) => f.write_str("Destination::Stream(_)"),
+            Self::ColorStream(_) => f.write_str("Destination::ColorStream(_)"),
         }
     }
 }
@@ -444,6 +465,7 @@ impl io::Write for Destination {
             }
             Self::File { file, .. } => file.write(buffer),
             Self::Stream(writer) => writer.borrow_mut().write(buffer),
+            Self::ColorStream(writer) => writer.borrow_mut().write(buffer),
         }
     }
 
@@ -457,6 +479,41 @@ impl io::Write for Destination {
             }
             Self::File { file, .. } => file.flush(),
             Self::Stream(writer) => writer.borrow_mut().flush(),
+            Self::ColorStream(writer) => writer.borrow_mut().flush(),
+        }
+    }
+}
+
+impl WriteColor for Destination {
+    fn supports_color(&self) -> bool {
+        if let Self::ColorStream(writer) = self {
+            writer.borrow().supports_color()
+        } else {
+            false
+        }
+    }
+
+    fn set_color(&mut self, spec: &termcolor::ColorSpec) -> io::Result<()> {
+        if let Self::ColorStream(writer) = self {
+            writer.borrow_mut().set_color(spec)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn reset(&mut self) -> io::Result<()> {
+        if let Self::ColorStream(writer) = self {
+            writer.borrow_mut().reset()
+        } else {
+            Ok(())
+        }
+    }
+
+    fn is_synchronous(&self) -> bool {
+        if let Self::ColorStream(writer) = self {
+            writer.borrow().is_synchronous()
+        } else {
+            false
         }
     }
 }
@@ -486,6 +543,39 @@ impl Kind {
     /// Is this an output (stdout or stderr)?
     fn is_output(&self) -> bool {
         matches!(self, Self::Stdout | Self::Stderr)
+    }
+
+    /// Is this an error (stderr, error, wrapper-error)?
+    fn is_any_error(&self) -> bool {
+        matches!(self, Self::Stderr | Self::Error | Self::WrapperError)
+    }
+
+    /// Write value.
+    fn write_value(
+        &self,
+        logger: &mut JobLogger,
+        value: &[u8],
+        indent: usize,
+    ) -> anyhow::Result<()> {
+        let mut color = termcolor::ColorSpec::new();
+        color.set_intense(true);
+
+        if self.is_any_error() {
+            color.set_fg(Some(termcolor::Color::Red));
+        } else {
+            color.set_fg(Some(termcolor::Color::White));
+        }
+
+        logger.set_color(&color)?;
+        let newline = logger.write_value(value, indent)?;
+        logger.reset_color()?;
+
+        if self.is_output() {
+            // We only care about trailing newlines for output records.
+            logger.continued_line = !newline;
+        }
+
+        Ok(())
     }
 }
 
