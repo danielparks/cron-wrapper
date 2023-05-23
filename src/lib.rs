@@ -1,3 +1,4 @@
+#![forbid(unsafe_code)]
 #![warn(missing_docs)]
 //! Miscellaneous useful modules that support cron-wrapper.
 
