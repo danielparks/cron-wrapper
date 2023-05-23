@@ -81,7 +81,7 @@ pub(crate) struct Params {
 
 impl Params {
     /// Pause output until a condition is met.
-    pub fn pause_output_initially(&self) -> bool {
+    pub fn start_paused(&self) -> bool {
         self.on_error || self.on_fail
     }
 
