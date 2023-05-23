@@ -9,6 +9,7 @@ use std::iter;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Instant;
+use termcolor::WriteColor;
 use time::format_description::well_known::{iso8601, Iso8601};
 use time::OffsetDateTime;
 
@@ -157,23 +158,23 @@ impl JobLogger {
         &mut self,
         error: &anyhow::Error,
     ) -> anyhow::Result<()> {
-        self.write_record("WRAPPER-ERROR", format!("{error:?}").as_bytes())
+        self.write_record(Kind::WrapperError, format!("{error:?}").as_bytes())
     }
 
     /// Log an [`Event`] received from the [`Child`].
     pub fn log_event(&mut self, event: &Event) -> anyhow::Result<()> {
         match &event {
-            Event::Stdout(output) => self.write_record("out", output),
-            Event::Stderr(output) => self.write_record("err", output),
+            Event::Stdout(output) => self.write_record(Kind::Stdout, output),
+            Event::Stderr(output) => self.write_record(Kind::Stderr, output),
             Event::Exit(_) => {
                 if let Some(code) = event.exit_code() {
-                    self.write_record("exit", code.to_string().as_bytes())
+                    self.write_record(Kind::Exit, code.to_string().as_bytes())
                 } else {
-                    self.write_record("exit", b"none")
+                    self.write_record(Kind::Exit, b"none")
                 }
             }
             Event::Error(error) => {
-                self.write_record("ERROR", format!("{error:?}").as_bytes())
+                self.write_record(Kind::Error, format!("{error:?}").as_bytes())
             }
         }
     }
@@ -193,7 +194,7 @@ impl JobLogger {
     }
 
     /// Private: write a record in the log file.
-    fn write_record(&mut self, kind: &str, value: &[u8]) -> anyhow::Result<()> {
+    fn write_record(&mut self, kind: Kind, value: &[u8]) -> anyhow::Result<()> {
         if !self.finished_metadata {
             self.write_all(b"\n")?;
             self.finished_metadata = true;
@@ -202,8 +203,9 @@ impl JobLogger {
         let time = format!("{:.3}", self.elapsed());
         let indent = time.len() + 5;
 
-        let mut buffer =
-            Vec::with_capacity(time.len() + kind.len() + value.len() + 5);
+        let mut buffer = Vec::with_capacity(
+            time.len() + kind.as_bytes().len() + value.len() + 5,
+        );
         buffer.extend_from_slice(time.as_bytes());
 
         if self.continued_line {
@@ -213,15 +215,9 @@ impl JobLogger {
         buffer.push(b' ');
         buffer.extend_from_slice(kind.as_bytes());
         buffer.push(b' ');
-        let newline = self.escape_into(value, indent, &mut buffer);
-        buffer.push(b'\n');
+        self.write_all(&buffer)?;
 
-        if kind == "out" || kind == "err" {
-            // We only care if output ends with a newline.
-            self.continued_line = !newline;
-        }
-
-        self.write_all(&buffer)
+        kind.write_value(self, value, indent)
     }
 
     /// Private: write a metadata line to the top of the log file.
@@ -238,15 +234,33 @@ impl JobLogger {
         let mut buffer = Vec::with_capacity(key.len() + 2 + value.len() + 1);
         buffer.extend_from_slice(key.as_bytes());
         buffer.extend_from_slice(b": ");
-        self.escape_into(value, 4, &mut buffer); // Ignore trailing newlines.
-        buffer.push(b'\n');
+        self.write_all(&buffer)?;
 
-        self.write_all(&buffer)
+        self.write_value(value, 4)?;
+
+        Ok(())
+    }
+
+    /// Private: write value for metadata or record including trailing newline.
+    ///
+    /// Returns `Ok(true)` if the input ended with a newline.
+    fn write_value(
+        &mut self,
+        input: &[u8],
+        indent: usize,
+    ) -> anyhow::Result<bool> {
+        let mut output: Vec<u8> = Vec::with_capacity(input.len());
+        let newline = self.escape_into(input, indent, &mut output);
+
+        self.write_all(&output)?;
+
+        Ok(newline)
     }
 
     /// Private: escape value for metadata or record in the output buffer.
     ///
-    /// Returns true if the output ended with a newline.
+    /// Always ends output with a newline. Returns true if the input ended with
+    /// a newline.
     fn escape_into(
         &self,
         input: &[u8],
@@ -254,6 +268,7 @@ impl JobLogger {
         output: &mut Vec<u8>,
     ) -> bool {
         let indent: Vec<u8> = iter::repeat(b' ').take(indent).collect();
+
         if let Some((&last, inpu)) = input.split_last() {
             for &b in inpu {
                 output.push(b);
@@ -262,29 +277,53 @@ impl JobLogger {
                 }
             }
 
+            output.push(last);
+
             // FIXME? CR?
             if last == b'\n' {
-                // Swallow trailing newline.
-                true
-            } else {
-                output.push(last);
-                // No trailing newline.
-                false
+                // Ends with a newline; we don’t need to add our own.
+                return true;
             }
-        } else {
-            // input was empty, so no newline.
-            false
         }
+
+        // No trailing newline (input was empty or we checked the last
+        // character), so add our own newline.
+        output.push(b'\n');
+
+        false
     }
 
     /// Private: write raw data to everything in `self.destinations`.
     fn write_all(&mut self, data: &[u8]) -> anyhow::Result<()> {
         self.initialize()?;
 
-        // FIXME? should this write to all destinations even if one returns
-        // an error?
+        // FIXME? apply to all destinations even if one returns an error?
         for destination in self.destinations.iter_mut() {
             destination.write_all(data)?;
+        }
+
+        Ok(())
+    }
+
+    /// Private: Set the color of the output if the destination supports it.
+    fn set_color(&mut self, spec: &termcolor::ColorSpec) -> anyhow::Result<()> {
+        self.initialize()?;
+
+        // FIXME? apply to all destinations even if one returns an error?
+        for destination in self.destinations.iter_mut() {
+            destination.set_color(spec)?;
+        }
+
+        Ok(())
+    }
+
+    /// Private: Reset the color of the output if the destination supports it.
+    fn reset_color(&mut self) -> anyhow::Result<()> {
+        self.initialize()?;
+
+        // FIXME? apply to all destinations even if one returns an error?
+        for destination in self.destinations.iter_mut() {
+            destination.reset()?;
         }
 
         Ok(())
@@ -392,6 +431,9 @@ pub enum Destination {
 
     /// A stream, e.g. stdout.
     Stream(Rc<RefCell<dyn io::Write>>),
+
+    /// A stream that might accept color, e.g. stdout.
+    ColorStream(Rc<RefCell<dyn WriteColor>>),
 }
 
 impl fmt::Debug for Destination {
@@ -407,6 +449,7 @@ impl fmt::Debug for Destination {
                 .field("file", &file)
                 .finish(),
             Self::Stream(_) => f.write_str("Destination::Stream(_)"),
+            Self::ColorStream(_) => f.write_str("Destination::ColorStream(_)"),
         }
     }
 }
@@ -422,6 +465,7 @@ impl io::Write for Destination {
             }
             Self::File { file, .. } => file.write(buffer),
             Self::Stream(writer) => writer.borrow_mut().write(buffer),
+            Self::ColorStream(writer) => writer.borrow_mut().write(buffer),
         }
     }
 
@@ -435,7 +479,103 @@ impl io::Write for Destination {
             }
             Self::File { file, .. } => file.flush(),
             Self::Stream(writer) => writer.borrow_mut().flush(),
+            Self::ColorStream(writer) => writer.borrow_mut().flush(),
         }
+    }
+}
+
+impl WriteColor for Destination {
+    fn supports_color(&self) -> bool {
+        if let Self::ColorStream(writer) = self {
+            writer.borrow().supports_color()
+        } else {
+            false
+        }
+    }
+
+    fn set_color(&mut self, spec: &termcolor::ColorSpec) -> io::Result<()> {
+        if let Self::ColorStream(writer) = self {
+            writer.borrow_mut().set_color(spec)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn reset(&mut self) -> io::Result<()> {
+        if let Self::ColorStream(writer) = self {
+            writer.borrow_mut().reset()
+        } else {
+            Ok(())
+        }
+    }
+
+    fn is_synchronous(&self) -> bool {
+        if let Self::ColorStream(writer) = self {
+            writer.borrow().is_synchronous()
+        } else {
+            false
+        }
+    }
+}
+
+/// Used to keep track of how various event types should be displayed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Kind {
+    Stdout,
+    Stderr,
+    Exit,
+    Error,
+    WrapperError,
+}
+
+impl Kind {
+    /// Serialize to a byte string.
+    fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Stdout => b"out",
+            Self::Stderr => b"err",
+            Self::Exit => b"exit",
+            Self::Error => b"ERROR",
+            Self::WrapperError => b"WRAPPER-ERROR",
+        }
+    }
+
+    /// Is this an output (stdout or stderr)?
+    fn is_output(&self) -> bool {
+        matches!(self, Self::Stdout | Self::Stderr)
+    }
+
+    /// Is this an error (stderr, error, wrapper-error)?
+    fn is_any_error(&self) -> bool {
+        matches!(self, Self::Stderr | Self::Error | Self::WrapperError)
+    }
+
+    /// Write value.
+    fn write_value(
+        &self,
+        logger: &mut JobLogger,
+        value: &[u8],
+        indent: usize,
+    ) -> anyhow::Result<()> {
+        let mut color = termcolor::ColorSpec::new();
+        color.set_intense(true);
+
+        if self.is_any_error() {
+            color.set_fg(Some(termcolor::Color::Red));
+        } else {
+            color.set_fg(Some(termcolor::Color::White));
+        }
+
+        logger.set_color(&color)?;
+        let newline = logger.write_value(value, indent)?;
+        logger.reset_color()?;
+
+        if self.is_output() {
+            // We only care about trailing newlines for output records.
+            logger.continued_line = !newline;
+        }
+
+        Ok(())
     }
 }
 
