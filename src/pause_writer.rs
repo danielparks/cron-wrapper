@@ -15,6 +15,7 @@ pub struct PausableWriter {
 
 impl PausableWriter {
     /// Create a new paused `PausableWriter` for stdout
+    #[must_use]
     pub fn stdout(color_choice: ColorChoice) -> Self {
         let buffer_writer = BufferWriter::stdout(color_choice);
         let buffer = buffer_writer.buffer();
@@ -33,6 +34,10 @@ impl PausableWriter {
 
     /// Unpause the writer: write any buffered data and allow future writes to
     /// pass through.
+    ///
+    /// # Errors
+    ///
+    /// This may return errors from writing or flushing the writer.
     pub fn unpause(&mut self) -> io::Result<()> {
         if self.paused {
             self.buffer_writer.print(&self.buffer)?;
@@ -50,6 +55,11 @@ impl PausableWriter {
     }
 
     /// Either pause or unpause the writer based on the parameter.
+    ///
+    /// # Errors
+    ///
+    /// This may return errors from writing or flushing the writer when setting
+    /// to unpaused (`set_paused(false)`).
     pub fn set_paused(&mut self, paused: bool) -> io::Result<()> {
         if paused {
             self.pause();

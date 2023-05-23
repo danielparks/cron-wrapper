@@ -4,6 +4,7 @@ use log::{debug, error, info, trace};
 use popol::set_nonblocking;
 use std::cmp;
 use std::collections::VecDeque;
+use std::convert::Into;
 use std::ffi::OsString;
 use std::fmt;
 use std::io::{self, Read};
@@ -160,6 +161,7 @@ impl<'a> Event<'a> {
     /// same way that exit codes are reported in shells.
     ///
     /// All variants before [`Event::Exit`] return `None`.
+    #[must_use]
     pub fn exit_code(&self) -> Option<i32> {
         if let Self::Exit(status) = self {
             // FIXME: broken on windows.
@@ -206,7 +208,7 @@ impl Command {
     {
         Command {
             command: command.into(),
-            args: args.into_iter().map(|s| s.into()).collect(),
+            args: args.into_iter().map(Into::into).collect(),
             run_timeout: Timeout::Never,
             idle_timeout: Timeout::Never,
             buffer_size: 4096,
@@ -230,7 +232,7 @@ impl Command {
         S: Into<OsString>,
         I: IntoIterator<Item = S>,
     {
-        self.args = args.into_iter().map(|s| s.into()).collect();
+        self.args = args.into_iter().map(Into::into).collect();
         self
     }
 
@@ -351,6 +353,9 @@ impl Command {
     /// let_assert!(Some(Event::Exit(status)) = child2.next_event());
     /// check!(status.success());
     /// ```
+    /// # Errors
+    ///
+    /// May return [`Error::Spawn`].
     pub fn spawn(&self) -> Result<Child, Error> {
         let command = self.command.clone();
         let args = &self.args;
@@ -395,13 +400,15 @@ impl Command {
     }
 
     /// Get the executable as a [`Path`].
+    #[must_use]
     pub fn command_as_path(&self) -> &Path {
         self.command.as_ref()
     }
 
     /// Get the command line to run as an iterator over words.
-    pub fn command_line(&self) -> CommandLineIterator {
-        CommandLineIterator {
+    #[must_use]
+    pub fn command_line(&self) -> WordIterator {
+        WordIterator {
             command: self,
             iter: None,
         }
@@ -409,7 +416,8 @@ impl Command {
 
     /// Get the command line to run escaped for the shell.
     ///
-    /// Note that this uses a lossy conversion of OsString to String.
+    /// Note that this uses a lossy conversion of `OsString` to String.
+    #[must_use]
     pub fn command_line_sh(&self) -> String {
         shell_words::join(
             self.command_line()
@@ -420,6 +428,7 @@ impl Command {
 
 impl Child {
     /// Get the child’s process ID.
+    #[must_use]
     pub fn id(&self) -> u32 {
         self.process.id()
     }
@@ -432,6 +441,7 @@ impl Child {
     /// let mut child = Command::new("/bin/echo", ["hello"]).spawn().unwrap();
     /// assert!(child.process().id() > 0);
     /// ```
+    #[must_use]
     pub fn process(&self) -> &process::Child {
         &self.process
     }
@@ -575,6 +585,11 @@ impl Child {
     ///
     /// If `events` is not empty this will do nothing, not even check if the
     /// timeout is expired.
+    ///
+    /// # Errors
+    ///
+    /// May return [`Error::Poll`], [`Error::IdleTimeout`], or
+    /// [`Error::RunTimeout`].
     fn poll(&mut self) -> Result<(), Error> {
         let original_timeout = cmp::min(&self.run_timeout, &self.idle_timeout);
         trace!(
@@ -617,6 +632,10 @@ impl Child {
     /// Read from the child’s stdout or stderr.
     ///
     /// Fills `self.buffer` and returns the number of bytes written or an error.
+    ///
+    /// # Errors
+    ///
+    /// May return [`Error::Read`].
     fn read(&mut self, stream: StreamType) -> Result<usize, Error> {
         self.state = State::Reading(stream);
 
@@ -664,12 +683,12 @@ impl Child {
 }
 
 /// An iterator that produces the words in the command line.
-pub struct CommandLineIterator<'a> {
+pub struct WordIterator<'a> {
     command: &'a Command,
     iter: Option<std::slice::Iter<'a, OsString>>,
 }
 
-impl<'a> Iterator for CommandLineIterator<'a> {
+impl<'a> Iterator for WordIterator<'a> {
     type Item = &'a OsString;
 
     fn next(&mut self) -> Option<Self::Item> {
