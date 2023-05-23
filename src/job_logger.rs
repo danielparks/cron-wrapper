@@ -178,6 +178,20 @@ impl JobLogger {
         }
     }
 
+    /// Private: write standard header to log file.
+    fn write_file_header(&mut self) -> anyhow::Result<()> {
+        if let Some(command) = &self.command {
+            let full_command = command.command_line().collect::<Vec<_>>();
+            self.write_metadata(
+                "Command",
+                format!("{:?}", full_command).as_bytes(),
+            )?;
+        }
+
+        let start = self.start_time.format(&Iso8601::DEFAULT)?;
+        self.write_metadata("Start", start.as_bytes())
+    }
+
     /// Private: write a record in the log file.
     fn write_record(&mut self, kind: &str, value: &[u8]) -> anyhow::Result<()> {
         if !self.finished_metadata {
@@ -274,20 +288,6 @@ impl JobLogger {
         }
 
         Ok(())
-    }
-
-    /// Private: write standard header to log file.
-    fn write_file_header(&mut self) -> anyhow::Result<()> {
-        if let Some(command) = &self.command {
-            let full_command = command.command_line().collect::<Vec<_>>();
-            self.write_metadata(
-                "Command",
-                format!("{:?}", full_command).as_bytes(),
-            )?;
-        }
-
-        let start = self.start_time.format(&Iso8601::DEFAULT)?;
-        self.write_metadata("Start", start.as_bytes())
     }
 
     /// Private: create a log file in a given directory.
