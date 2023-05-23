@@ -12,9 +12,10 @@ use simplelog::{
 };
 use std::cell::RefCell;
 use std::fs;
-use std::io::{self, Write};
+use std::io::Write;
 use std::process;
 use std::rc::Rc;
+use termcolor::{Color, ColorSpec, WriteColor};
 
 mod params;
 use params::Params;
@@ -52,12 +53,17 @@ fn start(params: Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
     let mut child = command.spawn()?;
     job_logger.set_child(&child);
 
-    let out = Rc::new(RefCell::new(PausableWriter::new(io::stdout())));
+    let out =
+        Rc::new(RefCell::new(PausableWriter::stdout(params.color_choice())));
     out.borrow_mut().set_paused(params.start_paused())?;
 
     if params.log_stdout {
         job_logger.add_destination(Destination::Stream(out.clone()));
     }
+
+    let mut err_color = ColorSpec::new();
+    err_color.set_fg(Some(Color::Red));
+    err_color.set_intense(true);
 
     while let Some(event) = child.next_event() {
         job_logger.log_event(&event)?;
@@ -77,7 +83,9 @@ fn start(params: Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
 
                 if !output.is_empty() && params.normal_output_enabled() {
                     let mut out = out.borrow_mut();
+                    out.set_color(&err_color)?;
                     out.write_all(output)?;
+                    out.reset()?;
                     out.flush()?; // In case there wasn’t a newline.
                 }
             }

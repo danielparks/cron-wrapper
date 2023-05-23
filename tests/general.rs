@@ -93,6 +93,35 @@ fn mixed_output_on_error() {
 }
 
 #[test]
+fn mixed_output_unconditional_color() {
+    let output =
+        helpers::run(["--color", "always", "tests/fixtures/mixed_output.sh"])
+            .output()
+            .unwrap();
+
+    check!(output.status.success());
+    check!(output.stdout.as_bstr() == "111\x1b[0m\x1b[38;5;9maaa\x1b[0m333\n\x1b[0m\x1b[38;5;9mbbb\n\x1b[0m");
+    check!(output.stderr.as_bstr() == "");
+}
+
+#[test]
+fn mixed_output_on_fail_color() {
+    let output = helpers::run([
+        "--color",
+        "always",
+        "--on-fail",
+        "tests/fixtures/mixed_output.sh",
+        "1",
+    ])
+    .output()
+    .unwrap();
+
+    check!(output.status.code() == Some(1));
+    check!(output.stdout.as_bstr() == "111\x1b[0m\x1b[38;5;9maaa\x1b[0m333\n\x1b[0m\x1b[38;5;9mbbb\n\x1b[0m");
+    check!(output.stderr.as_bstr() == "");
+}
+
+#[test]
 fn invalid_utf8() {
     let output = helpers::run(["tests/fixtures/invalid_utf8.sh"])
         .output()

@@ -194,6 +194,7 @@ dependencies = [
  "bstr",
  "clap",
  "duration-str",
+ "is-terminal",
  "log",
  "nix",
  "popol",
@@ -201,6 +202,7 @@ dependencies = [
  "shell-words",
  "simplelog",
  "tempfile",
+ "termcolor",
  "thiserror",
  "time",
 ]
