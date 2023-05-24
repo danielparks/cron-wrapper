@@ -661,7 +661,7 @@ mod tests {
         check!(!output.contains(&0u8));
         check!(
             re.is_match(&output),
-            "output {} does not match {re:?}",
+            r#"output "{}" does not match "{re:?}""#,
             output.as_bstr()
         );
     }
