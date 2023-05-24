@@ -42,18 +42,7 @@ pub struct JobLogger {
     start_time: OffsetDateTime,
     command: Option<Command>,
     child_id: Option<u32>,
-
-    /// If we’ve finished writing log metadata and the trailing empty line.
-    finished_metadata: bool,
-
-    /// If the last output from the child did *not* end with a newline.
-    continued_line: bool,
-
-    /// If initialization has run (should happen on first write).
-    ///
-    /// Initialization includes creating a log file if the destination is a
-    /// directory and writing the metadata header.
-    initialized: bool,
+    state: State,
 }
 
 impl Default for JobLogger {
@@ -73,9 +62,7 @@ impl JobLogger {
                 .unwrap_or_else(|_| OffsetDateTime::now_utc()),
             command: None,
             child_id: None,
-            finished_metadata: false,
-            continued_line: false,
-            initialized: false,
+            state: State::Initial,
         }
     }
 
@@ -107,12 +94,12 @@ impl JobLogger {
     /// is a [`Destination::Directory`], or if it can’t write the log metadata
     /// header to all destinations.
     pub fn initialize(&mut self) -> anyhow::Result<()> {
-        if self.initialized {
+        if self.state != State::Initial {
             return Ok(());
         }
 
         // Prevent this from being called from within itself.
-        self.initialized = true;
+        self.state = State::Metadata;
 
         let mut todo = Vec::new();
         for (i, destination) in self.destinations.iter().enumerate() {
@@ -219,9 +206,13 @@ impl JobLogger {
     ///
     /// This will return an error if it can’t write to the log.
     fn write_record(&mut self, kind: Kind, value: &[u8]) -> anyhow::Result<()> {
-        if !self.finished_metadata {
+        if self.state == State::Initial {
+            self.initialize()?;
+        }
+
+        if self.state == State::Metadata {
             self.write_all(b"\n")?;
-            self.finished_metadata = true;
+            self.state = State::Newline;
         }
 
         let time = format!("{:.3}", self.elapsed());
@@ -232,7 +223,7 @@ impl JobLogger {
         );
         buffer.extend_from_slice(time.as_bytes());
 
-        if self.continued_line {
+        if self.state == State::Continuation {
             buffer.extend_from_slice(b" \\");
         }
 
@@ -256,7 +247,7 @@ impl JobLogger {
     ) -> anyhow::Result<()> {
         // FIXME? Should this be an error?
         assert!(
-            !self.finished_metadata,
+            self.state == State::Metadata,
             "Tried to write metadata after a record."
         );
 
@@ -420,14 +411,6 @@ impl JobLogger {
     fn elapsed(&self) -> f64 {
         self.start_instant.elapsed().as_secs_f64()
     }
-
-    /// Private: reset state for output. Used for testing.
-    #[cfg(test)]
-    fn reset_output_state(&mut self) {
-        self.finished_metadata = false;
-        self.continued_line = false;
-        self.initialized = false;
-    }
 }
 
 /// Create a file; fail if it already exists.
@@ -577,6 +560,22 @@ fn escape_into(input: &[u8], indent: usize, output: &mut Vec<u8>) -> bool {
     false
 }
 
+/// The current state of the [`JobLogger`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum State {
+    /// Initial state; no metadata written or `Destination`s converted.
+    Initial,
+
+    /// `Destination`s have all been converted to writable; writing metadata.
+    Metadata,
+
+    /// Writing event records. The next record will start on a new line.
+    Newline,
+
+    /// Writing event records. The next record will continue an existing line.
+    Continuation,
+}
+
 /// Used to keep track of how various event types should be displayed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Kind {
@@ -636,7 +635,11 @@ impl Kind {
 
         if self.is_output() {
             // We only care about trailing newlines for output records.
-            logger.continued_line = !newline;
+            logger.state = if newline {
+                State::Newline
+            } else {
+                State::Continuation
+            };
         }
 
         Ok(())
@@ -916,7 +919,7 @@ mod tests {
         for i in 1..100 {
             // Reset destinations. This is the easiest way to get the logger to
             // generate an identical name for the log file.
-            logger.reset_output_state();
+            logger.state = State::Initial;
             logger.destinations =
                 vec![Destination::Directory(directory.path().to_path_buf())];
             check!(logger.paths().is_empty());
@@ -926,7 +929,7 @@ mod tests {
 
         // Reset destinations. This is the easiest way to get the logger to
         // generate an identical name for the log file.
-        logger.reset_output_state();
+        logger.state = State::Initial;
         logger.destinations =
             vec![Destination::Directory(directory.path().to_path_buf())];
         check!(logger.paths().is_empty());

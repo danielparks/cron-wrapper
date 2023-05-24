@@ -10,6 +10,7 @@ use std::time::Duration;
 
 #[derive(Debug, Parser)]
 #[clap(version, about)]
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct Params {
     /// The executable to run
     pub command: PathBuf,
