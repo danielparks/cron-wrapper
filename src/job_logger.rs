@@ -42,18 +42,7 @@ pub struct JobLogger {
     start_time: OffsetDateTime,
     command: Option<Command>,
     child_id: Option<u32>,
-
-    /// If we’ve finished writing log metadata and the trailing empty line.
-    finished_metadata: bool,
-
-    /// If the last output from the child did *not* end with a newline.
-    continued_line: bool,
-
-    /// If initialization has run (should happen on first write).
-    ///
-    /// Initialization includes creating a log file if the destination is a
-    /// directory and writing the metadata header.
-    initialized: bool,
+    state: State,
 }
 
 impl Default for JobLogger {
@@ -64,6 +53,7 @@ impl Default for JobLogger {
 
 impl JobLogger {
     /// Create a new job logger that will silently discard all logs.
+    #[must_use]
     pub fn none() -> Self {
         JobLogger {
             destinations: vec![],
@@ -72,9 +62,7 @@ impl JobLogger {
                 .unwrap_or_else(|_| OffsetDateTime::now_utc()),
             command: None,
             child_id: None,
-            finished_metadata: false,
-            continued_line: false,
-            initialized: false,
+            state: State::Initial,
         }
     }
 
@@ -99,18 +87,24 @@ impl JobLogger {
     /// This is called on every write, but does nothing after the first call. It
     /// creates log files for all [`Destination::Directory`]s, and writes the
     /// metadata header.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if it can’t create a log file, e.g. if there
+    /// is a [`Destination::Directory`], or if it can’t write the log metadata
+    /// header to all destinations.
     pub fn initialize(&mut self) -> anyhow::Result<()> {
-        if self.initialized {
+        if self.state != State::Initial {
             return Ok(());
         }
 
         // Prevent this from being called from within itself.
-        self.initialized = true;
+        self.state = State::Metadata;
 
         let mut todo = Vec::new();
         for (i, destination) in self.destinations.iter().enumerate() {
             if let Destination::Directory(path) = destination {
-                todo.push((i, path.to_owned()));
+                todo.push((i, path.clone()));
             }
         }
 
@@ -130,6 +124,7 @@ impl JobLogger {
     /// the file has been created. If the logger was created by
     /// [`Self::new_in_directory()`] but nothing has been logged, then the file
     /// will not have been created and this will return an empty `Vec`.
+    #[must_use]
     pub fn paths(&self) -> Vec<&PathBuf> {
         self.destinations
             .iter()
@@ -154,6 +149,10 @@ impl JobLogger {
     }
 
     /// Log an error originating in cron-wrapper, not an [`Event::Error`].
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if it can’t write to the log.
     pub fn log_wrapper_error(
         &mut self,
         error: &anyhow::Error,
@@ -162,6 +161,10 @@ impl JobLogger {
     }
 
     /// Log an [`Event`] received from the [`Child`].
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if it can’t write to the log.
     pub fn log_event(&mut self, event: &Event) -> anyhow::Result<()> {
         match &event {
             Event::Stdout(output) => self.write_record(Kind::Stdout, output),
@@ -180,12 +183,16 @@ impl JobLogger {
     }
 
     /// Private: write standard header to log file.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if it can’t write to the log.
     fn write_file_header(&mut self) -> anyhow::Result<()> {
         if let Some(command) = &self.command {
             let full_command = command.command_line().collect::<Vec<_>>();
             self.write_metadata(
                 "Command",
-                format!("{:?}", full_command).as_bytes(),
+                format!("{full_command:?}").as_bytes(),
             )?;
         }
 
@@ -194,10 +201,18 @@ impl JobLogger {
     }
 
     /// Private: write a record in the log file.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if it can’t write to the log.
     fn write_record(&mut self, kind: Kind, value: &[u8]) -> anyhow::Result<()> {
-        if !self.finished_metadata {
+        if self.state == State::Initial {
+            self.initialize()?;
+        }
+
+        if self.state == State::Metadata {
             self.write_all(b"\n")?;
-            self.finished_metadata = true;
+            self.state = State::Newline;
         }
 
         let time = format!("{:.3}", self.elapsed());
@@ -208,7 +223,7 @@ impl JobLogger {
         );
         buffer.extend_from_slice(time.as_bytes());
 
-        if self.continued_line {
+        if self.state == State::Continuation {
             buffer.extend_from_slice(b" \\");
         }
 
@@ -221,15 +236,20 @@ impl JobLogger {
     }
 
     /// Private: write a metadata line to the top of the log file.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if it can’t write to the log.
     fn write_metadata(
         &mut self,
         key: &str,
         value: &[u8],
     ) -> anyhow::Result<()> {
-        if self.finished_metadata {
-            // FIXME? Should this be an error?
-            panic!("Tried to write metadata after a record.");
-        }
+        // FIXME? Should this be an error?
+        assert!(
+            self.state == State::Metadata,
+            "Tried to write metadata after a record."
+        );
 
         let mut buffer = Vec::with_capacity(key.len() + 2 + value.len() + 1);
         buffer.extend_from_slice(key.as_bytes());
@@ -244,61 +264,33 @@ impl JobLogger {
     /// Private: write value for metadata or record including trailing newline.
     ///
     /// Returns `Ok(true)` if the input ended with a newline.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if it can’t write to the log.
     fn write_value(
         &mut self,
         input: &[u8],
         indent: usize,
     ) -> anyhow::Result<bool> {
         let mut output: Vec<u8> = Vec::with_capacity(input.len());
-        let newline = self.escape_into(input, indent, &mut output);
+        let newline = escape_into(input, indent, &mut output);
 
         self.write_all(&output)?;
 
         Ok(newline)
     }
 
-    /// Private: escape value for metadata or record in the output buffer.
-    ///
-    /// Always ends output with a newline. Returns true if the input ended with
-    /// a newline.
-    fn escape_into(
-        &self,
-        input: &[u8],
-        indent: usize,
-        output: &mut Vec<u8>,
-    ) -> bool {
-        let indent: Vec<u8> = iter::repeat(b' ').take(indent).collect();
-
-        if let Some((&last, inpu)) = input.split_last() {
-            for &b in inpu {
-                output.push(b);
-                if b == b'\n' {
-                    output.extend_from_slice(&indent);
-                }
-            }
-
-            output.push(last);
-
-            // FIXME? CR?
-            if last == b'\n' {
-                // Ends with a newline; we don’t need to add our own.
-                return true;
-            }
-        }
-
-        // No trailing newline (input was empty or we checked the last
-        // character), so add our own newline.
-        output.push(b'\n');
-
-        false
-    }
-
     /// Private: write raw data to everything in `self.destinations`.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if it can’t write to one of the destinations.
     fn write_all(&mut self, data: &[u8]) -> anyhow::Result<()> {
         self.initialize()?;
 
         // FIXME? apply to all destinations even if one returns an error?
-        for destination in self.destinations.iter_mut() {
+        for destination in &mut self.destinations {
             destination.write_all(data)?;
         }
 
@@ -306,11 +298,16 @@ impl JobLogger {
     }
 
     /// Private: Set the color of the output if the destination supports it.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if it can’t set the color for one of the
+    /// destinations that should support it.
     fn set_color(&mut self, spec: &termcolor::ColorSpec) -> anyhow::Result<()> {
         self.initialize()?;
 
         // FIXME? apply to all destinations even if one returns an error?
-        for destination in self.destinations.iter_mut() {
+        for destination in &mut self.destinations {
             destination.set_color(spec)?;
         }
 
@@ -318,11 +315,16 @@ impl JobLogger {
     }
 
     /// Private: Reset the color of the output if the destination supports it.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if it can’t reset the color for one of the
+    /// destinations that should support it.
     fn reset_color(&mut self) -> anyhow::Result<()> {
         self.initialize()?;
 
         // FIXME? apply to all destinations even if one returns an error?
-        for destination in self.destinations.iter_mut() {
+        for destination in &mut self.destinations {
             destination.reset()?;
         }
 
@@ -330,15 +332,23 @@ impl JobLogger {
     }
 
     /// Private: create a log file in a given directory.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if it can’t create a log file. It will add a
+    /// number to the log file name (before the “.log” extension) and increase
+    /// the number until it finds an available name, or after 100 tries.
+    ///
+    /// It could also return an error if it fails to format the date and time.
     fn create_file_in_directory(
         &self,
         directory: &Path,
     ) -> anyhow::Result<Destination> {
+        const MAX_ATTEMPTS: usize = 100;
         let base = self.generate_file_name_base()?;
         let mut number = String::new();
         let mut file_name = OsString::with_capacity(base.len() + 4);
         let mut path = PathBuf::new();
-        const MAX_ATTEMPTS: usize = 100;
 
         // The first attempt won‘t have a number in the file name, and each
         // loop preps the number for the next loop. Thus, the last loop will
@@ -370,6 +380,10 @@ impl JobLogger {
     }
 
     /// Private: generate the first part of a file name for a log.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if it fails to format the date and time.
     fn generate_file_name_base(&self) -> anyhow::Result<OsString> {
         let mut file_name = OsString::from(
             self.start_time.format(&Iso8601::<FILE_NAME_DATE_FORMAT>)?,
@@ -397,17 +411,14 @@ impl JobLogger {
     fn elapsed(&self) -> f64 {
         self.start_instant.elapsed().as_secs_f64()
     }
-
-    /// Private: reset state for output. Used for testing.
-    #[cfg(test)]
-    fn reset_output_state(&mut self) {
-        self.finished_metadata = false;
-        self.continued_line = false;
-        self.initialized = false;
-    }
 }
 
 /// Create a file; fail if it already exists.
+///
+/// # Errors
+///
+/// It will return an error if the file already exists, or if there was some
+/// other reason it could not create the file.
 fn exclusive_create_file(path: &Path) -> io::Result<fs::File> {
     fs::OpenOptions::new()
         .write(true)
@@ -518,6 +529,53 @@ impl WriteColor for Destination {
     }
 }
 
+/// Private: escape value for metadata or record in the output buffer.
+///
+/// Always ends output with a newline. Returns true if the input ended with a
+/// newline.
+fn escape_into(input: &[u8], indent: usize, output: &mut Vec<u8>) -> bool {
+    let indent: Vec<u8> = iter::repeat(b' ').take(indent).collect();
+
+    if let Some((&last, inpu)) = input.split_last() {
+        for &b in inpu {
+            output.push(b);
+            if b == b'\n' {
+                output.extend_from_slice(&indent);
+            }
+        }
+
+        output.push(last);
+
+        // FIXME? CR?
+        if last == b'\n' {
+            // Ends with a newline; we don’t need to add our own.
+            return true;
+        }
+    }
+
+    // No trailing newline (input was empty or we checked the last
+    // character), so add our own newline.
+    output.push(b'\n');
+
+    false
+}
+
+/// The current state of the [`JobLogger`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum State {
+    /// Initial state; no metadata written or `Destination`s converted.
+    Initial,
+
+    /// `Destination`s have all been converted to writable; writing metadata.
+    Metadata,
+
+    /// Writing event records. The next record will start on a new line.
+    Newline,
+
+    /// Writing event records. The next record will continue an existing line.
+    Continuation,
+}
+
 /// Used to keep track of how various event types should be displayed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Kind {
@@ -530,7 +588,7 @@ enum Kind {
 
 impl Kind {
     /// Serialize to a byte string.
-    fn as_bytes(&self) -> &[u8] {
+    fn as_bytes(self) -> &'static [u8] {
         match self {
             Self::Stdout => b"out",
             Self::Stderr => b"err",
@@ -541,18 +599,23 @@ impl Kind {
     }
 
     /// Is this an output (stdout or stderr)?
-    fn is_output(&self) -> bool {
+    fn is_output(self) -> bool {
         matches!(self, Self::Stdout | Self::Stderr)
     }
 
     /// Is this an error (stderr, error, wrapper-error)?
-    fn is_any_error(&self) -> bool {
+    fn is_any_error(self) -> bool {
         matches!(self, Self::Stderr | Self::Error | Self::WrapperError)
     }
 
     /// Write value.
+    ///
+    /// # Errors
+    ///
+    /// This will return an error if it can’t write to the log, or if it can’t
+    /// set or reset the text color on a destination that should support it.
     fn write_value(
-        &self,
+        self,
         logger: &mut JobLogger,
         value: &[u8],
         indent: usize,
@@ -572,7 +635,11 @@ impl Kind {
 
         if self.is_output() {
             // We only care about trailing newlines for output records.
-            logger.continued_line = !newline;
+            logger.state = if newline {
+                State::Newline
+            } else {
+                State::Continuation
+            };
         }
 
         Ok(())
@@ -627,7 +694,7 @@ mod tests {
         }
     }
 
-    /// Create an IdleTimeout error event.
+    /// Create an `IdleTimeout` error event.
     fn event_idle_timeout() -> Event<'static> {
         Event::Error(command::Error::IdleTimeout {
             timeout: Timeout::Expired {
@@ -642,7 +709,7 @@ mod tests {
         Event::Exit(ExitStatus::from_raw(code))
     }
 
-    /// Make a JobLogger that outputs to a buffer.
+    /// Make a `JobLogger` that outputs to a buffer.
     fn make_buffer_logger() -> (JobLogger, Rc<RefCell<Vec<u8>>>) {
         let output = Rc::new(RefCell::new(Vec::with_capacity(1024)));
 
@@ -661,7 +728,7 @@ mod tests {
         check!(!output.contains(&0u8));
         check!(
             re.is_match(&output),
-            "output {} does not match {re:?}",
+            r#"output "{}" does not match "{re:?}""#,
             output.as_bstr()
         );
     }
@@ -852,7 +919,7 @@ mod tests {
         for i in 1..100 {
             // Reset destinations. This is the easiest way to get the logger to
             // generate an identical name for the log file.
-            logger.reset_output_state();
+            logger.state = State::Initial;
             logger.destinations =
                 vec![Destination::Directory(directory.path().to_path_buf())];
             check!(logger.paths().is_empty());
@@ -862,7 +929,7 @@ mod tests {
 
         // Reset destinations. This is the easiest way to get the logger to
         // generate an identical name for the log file.
-        logger.reset_output_state();
+        logger.state = State::Initial;
         logger.destinations =
             vec![Destination::Directory(directory.path().to_path_buf())];
         check!(logger.paths().is_empty());

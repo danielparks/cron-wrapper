@@ -61,7 +61,8 @@ pub enum Timeout {
 impl Timeout {
     /// Get the remaining timeout if available.
     ///
-    /// Returns Some(Duration::ZERO) if the timeout has already expired.
+    /// Returns `Some(Duration::ZERO)` if the timeout has already expired.
+    #[must_use]
     pub fn timeout(&self) -> Option<Duration> {
         match &self {
             Self::Never => None,
@@ -77,6 +78,7 @@ impl Timeout {
     ///
     /// If the timeout is `Never`, `Pending`, or `Expired`, then it returns a
     /// clone of `self`.
+    #[must_use]
     pub fn start(&self) -> Self {
         if let Self::Future { timeout } = self {
             Self::Pending {
@@ -93,6 +95,7 @@ impl Timeout {
     /// Returns:
     ///   * `None` if the timeout has not expired.
     ///   * `Some(Timeout::Expired { .. })` if the timeout has expired.
+    #[must_use]
     pub fn check_expired(&self) -> Option<Self> {
         match &self {
             Self::Pending { timeout, start } => {
@@ -119,10 +122,10 @@ impl Timeout {
     ///
     /// This will not do anything special if called on a [`Timeout::Pending`]
     /// that has expired. See [`Timeout::check_expired()`].
+    #[must_use]
     pub fn elapsed(&self) -> Duration {
         match &self {
-            Self::Never => Duration::ZERO,
-            Self::Future { .. } => Duration::ZERO,
+            Self::Never | Self::Future { .. } => Duration::ZERO,
             Self::Pending { start, .. } => start.elapsed(),
             Self::Expired { actual, .. } => *actual,
         }
@@ -136,6 +139,7 @@ impl Timeout {
     ///
     /// This will not do anything special if called on a [`Timeout::Pending`]
     /// that has expired. See [`Timeout::check_expired()`].
+    #[must_use]
     pub fn elapsed_rounded(&self) -> Duration {
         // FIXME: actually consult resolution?
         let elapsed = self.elapsed();

@@ -1,4 +1,6 @@
 #![forbid(unsafe_code)]
+#![warn(clippy::pedantic)]
+#![allow(clippy::let_underscore_untyped)]
 
 use anyhow::{bail, Context};
 use clap::Parser;
@@ -21,16 +23,16 @@ mod params;
 use params::Params;
 
 fn main() {
-    if let Err(error) = cli(Params::parse()) {
-        eprintln!("Error: {:#}", error);
+    if let Err(error) = cli(&Params::parse()) {
+        eprintln!("Error: {error:#}");
         process::exit(1);
     }
 }
 
-fn cli(params: Params) -> anyhow::Result<()> {
-    init_logging(&params)?;
+fn cli(params: &Params) -> anyhow::Result<()> {
+    init_logging(params)?;
 
-    let mut job_logger = init_job_logger(&params)?;
+    let mut job_logger = init_job_logger(params)?;
 
     start(params, &mut job_logger).map_err(|error| {
         if let Err(error2) = job_logger.log_wrapper_error(&error) {
@@ -40,7 +42,7 @@ fn cli(params: Params) -> anyhow::Result<()> {
     })
 }
 
-fn start(params: Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
+fn start(params: &Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
     let command = Command {
         command: params.command.clone().into(),
         args: params.args.clone(),
@@ -109,7 +111,7 @@ fn start(params: Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
                 // Don’t return this error since that will cause it to be logged
                 // again as a “wrapper” error.
                 if params.normal_output_enabled() {
-                    eprintln!("Error: {:#}", error);
+                    eprintln!("Error: {error:#}");
                 }
                 process::exit(1);
             }

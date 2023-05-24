@@ -2,6 +2,7 @@ use anyhow::anyhow;
 use clap::{Parser, ValueEnum};
 use is_terminal::IsTerminal;
 use log::{log_enabled, Level::Trace};
+use std::convert::Into;
 use std::ffi::OsString;
 use std::io;
 use std::path::PathBuf;
@@ -9,6 +10,7 @@ use std::time::Duration;
 
 #[derive(Debug, Parser)]
 #[clap(version, about)]
+#[allow(clippy::struct_excessive_bools)]
 pub(crate) struct Params {
     /// The executable to run
     pub command: PathBuf,
@@ -116,7 +118,7 @@ fn parse_duration(input: &str) -> anyhow::Result<Duration> {
         input
             .parse::<u64>()
             .map(Duration::from_secs)
-            .map_err(|e| e.into())
+            .map_err(Into::into)
     } else {
         let duration = duration_str::parse(input)?;
         if duration.subsec_nanos() == duration.subsec_millis() * 1_000_000 {
