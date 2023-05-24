@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 #![warn(clippy::pedantic)]
-#![allow(clippy::let_underscore_untyped)]
+#![allow(clippy::let_underscore_untyped, clippy::map_unwrap_or)]
 
 use anyhow::{bail, Context};
 use clap::Parser;

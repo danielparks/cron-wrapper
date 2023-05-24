@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 #![warn(clippy::pedantic)]
-#![allow(clippy::let_underscore_untyped)]
+#![allow(clippy::let_underscore_untyped, clippy::map_unwrap_or)]
 #![warn(missing_docs)]
 //! Miscellaneous useful modules that support cron-wrapper.
 
