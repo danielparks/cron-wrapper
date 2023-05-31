@@ -1,6 +1,27 @@
 # Cron job wrapper for better failure reporting
 
-Add cron-wrapper to your cron jobs to configure when they produce output.
+`cron-wrapper` allows you to configure when your cron jobs produce output.
+
+For example, you might want to normally suppress all output from your cron job
+_unless_ there is output on stderr:
+
+```
+cron-wrapper --on-error -- /usr/local/bin/my-command -xyz foobar
+```
+
+Or, you might want to suppress output _unless_ the command returns a non-zero
+exit code:
+
+```
+cron-wrapper --on-fail -- /usr/local/bin/my-other-command
+```
+
+Or, you might want to suppress output _unless_ the command returns a non-zero
+exit code _or_ produces output on stderr:
+
+```
+cron-wrapper --on-fail --on-error -- /usr/local/bin/do-something zyx
+```
 
 ## Installation
 
