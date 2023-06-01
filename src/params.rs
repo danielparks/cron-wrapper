@@ -39,15 +39,25 @@ pub(crate) struct Params {
     ///
     /// Log files will be named YYYY-mm-ddTHH:MM:SS-ZZ:ZZ.$command.$pid.log. For
     /// example, if you were running /bin/ls, the file name might be
-    /// 2023-05-10T20:05:17-07:00.ls.15297.log. The file has a few lines of
-    /// metadata at the top (the exact command line run and the start time) then
-    /// all of the events received and the relative time in fractional seconds.
+    /// 2023-05-10T20:05:17-07:00.ls.15297.log.
+    ///
+    /// Conflicts with --log-dir <DIRECTORY>
     #[clap(short = 'l', long, value_name = "DIRECTORY")]
     pub log_dir: Option<PathBuf>,
 
+    /// Save structured log data to PATH
+    ///
+    /// This will save structured logging data to PATH. If a file already exists
+    /// at PATH, it will be overwritten.
+    ///
+    /// Conflicts with --log-file <PATH>
+    #[clap(short = 'L', long, value_name = "PATH", conflicts_with = "log_dir")]
+    pub log_file: Option<PathBuf>,
+
     /// Output structured log to stdout instead of normal output
     ///
-    /// This honors --on-error and --on-fail, and can be used with --log-dir.
+    /// This honors --on-error and --on-fail, and can be used in addition to
+    /// --log-dir or --log-file.
     #[clap(short = 's', long)]
     pub log_stdout: bool,
 

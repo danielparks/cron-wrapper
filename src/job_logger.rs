@@ -76,6 +76,23 @@ impl JobLogger {
         job_logger
     }
 
+    /// Create a new job logger that will store the log in the passed file.
+    ///
+    /// This opens the file for writing immediately. If the file already exists
+    /// it will be overwritten.
+    ///
+    /// # Errors
+    ///
+    /// This returns an [`io::Error`] if there is a problem opening `path` for
+    /// writing.
+    pub fn new_file<P: Into<PathBuf>>(path: P) -> io::Result<Self> {
+        let mut job_logger = Self::none();
+        let path = path.into();
+        let file = fs::File::create(&path)?; // Truncates if it already exists.
+        job_logger.add_destination(Destination::File { path, file });
+        Ok(job_logger)
+    }
+
     /// Add a destination
     pub fn add_destination(&mut self, destination: Destination) -> &Self {
         self.destinations.push(destination);
