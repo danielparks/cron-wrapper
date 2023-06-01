@@ -158,7 +158,30 @@ fn new_logger_config() -> ConfigBuilder {
 }
 
 fn init_job_logger(params: &Params) -> anyhow::Result<JobLogger> {
-    if let Some(path) = &params.log_dir {
+    if let Some(path) = &params.log_file {
+        if path.as_os_str().is_empty() {
+            // Clap actually prevents this, but let’s be sure.
+            bail!("A path must be passed to --log-file");
+        } else if path.is_dir() {
+            bail!(
+                "Expected {path:?} to be a file, but it is a directory \
+                (specified with --log-file)"
+            );
+        }
+
+        if let Some(parent) = path.parent() {
+            // I think we’ve covered the cases where path.parent() could return
+            // None, but if not, it will be caught when we try to create the
+            // log file.
+            if !parent.exists() {
+                fs::create_dir_all(parent).context(format!(
+                    "Creating log file directory {parent:?}"
+                ))?;
+            }
+        }
+
+        Ok(JobLogger::new_file(path)?)
+    } else if let Some(path) = &params.log_dir {
         if !path.exists() {
             fs::create_dir_all(path)
                 .context(format!("Creating log directory {path:?}"))?;
