@@ -1,6 +1,47 @@
+//! `cron-wrapper` executable.
+
 #![forbid(unsafe_code)]
-#![warn(clippy::pedantic)]
-#![allow(clippy::let_underscore_untyped, clippy::map_unwrap_or)]
+#![warn(clippy::nursery, clippy::pedantic)]
+#![allow(
+    clippy::let_underscore_untyped,
+    clippy::manual_string_new,
+    clippy::map_unwrap_or,
+    clippy::module_name_repetitions
+)]
+// Require docs on everything
+#![warn(missing_docs, clippy::missing_docs_in_private_items)]
+// Other restriction lints
+#![warn(
+    clippy::arithmetic_side_effects,
+    clippy::as_underscore,
+    clippy::assertions_on_result_states, // see if it makes sense
+    clippy::dbg_macro,
+    clippy::default_union_representation,
+    clippy::empty_structs_with_brackets,
+    clippy::filetype_is_file, // maybe?
+    clippy::fn_to_numeric_cast_any,
+    clippy::format_push_string, // maybe? alternative is fallible.
+    clippy::get_unwrap,
+    clippy::impl_trait_in_params,
+    clippy::integer_division,
+    clippy::lossy_float_literal,
+    clippy::mem_forget,
+    clippy::mixed_read_write_in_expression,
+    clippy::multiple_inherent_impl,
+    clippy::multiple_unsafe_ops_per_block,
+    clippy::mutex_atomic,
+    clippy::rc_buffer,
+    clippy::rc_mutex,
+    clippy::same_name_method,
+    clippy::semicolon_inside_block,
+    clippy::str_to_string, // maybe?
+    clippy::string_to_string,
+    clippy::undocumented_unsafe_blocks,
+    clippy::unnecessary_safety_doc,
+    clippy::unnecessary_self_imports,
+    clippy::unneeded_field_pattern,
+    clippy::verbose_file_reads
+)]
 
 use anyhow::{bail, Context};
 use clap::Parser;
@@ -19,6 +60,7 @@ use std::process;
 use std::rc::Rc;
 use termcolor::{Color, ColorSpec, WriteColor};
 
+/// Parameters for the executable.
 mod params;
 use params::Params;
 
@@ -29,6 +71,7 @@ fn main() {
     }
 }
 
+/// Initialize logging and start the child. Handle errors.
 fn cli(params: &Params) -> anyhow::Result<()> {
     init_logging(params)?;
 
@@ -42,6 +85,7 @@ fn cli(params: &Params) -> anyhow::Result<()> {
     })
 }
 
+/// Start the child process.
 fn start(params: &Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
     let command = Command {
         command: params.command.clone().into(),
@@ -121,7 +165,8 @@ fn start(params: &Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
     unreachable!("should have exited when child did");
 }
 
-// This does not deal with logs from child processes.
+/// Initialize logging for cron-wrapper itself. This does not deal with logs
+/// from child processes; see [`init_job_logger()`].
 fn init_logging(params: &Params) -> anyhow::Result<()> {
     let filter = match params.verbose {
         4.. => bail!("-v is only allowed up to 3 times."),
@@ -141,10 +186,13 @@ fn init_logging(params: &Params) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Convenience function to make creating [`TermLogger`]s clearer.
+#[allow(clippy::unnecessary_box_returns)] // Using `Box` isn’t our decision.
 fn new_term_logger(level: LevelFilter, config: Config) -> Box<TermLogger> {
     TermLogger::new(level, config, TerminalMode::Mixed, ColorChoice::Auto)
 }
 
+/// Convenience function to make creating [`ConfigBuilder`]s clearer.
 fn new_logger_config() -> ConfigBuilder {
     let mut builder = ConfigBuilder::new();
     builder.set_target_level(LevelFilter::Error);
@@ -157,6 +205,10 @@ fn new_logger_config() -> ConfigBuilder {
     builder
 }
 
+/// Create the [`JobLogger`] based on [`Params`].
+///
+/// This is _not_ responsible for creating the stdout [`Destination`] if
+/// `params.log_stdout` is `true`.
 fn init_job_logger(params: &Params) -> anyhow::Result<JobLogger> {
     if let Some(path) = &params.log_file {
         if path.as_os_str().is_empty() {

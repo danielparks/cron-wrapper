@@ -8,10 +8,11 @@ use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
+/// Parameters for `cron-wrapper`.
 #[derive(Debug, Parser)]
 #[clap(version, about)]
 #[allow(clippy::struct_excessive_bools)]
-pub(crate) struct Params {
+pub struct Params {
     /// The executable to run
     pub command: PathBuf,
 
@@ -99,7 +100,7 @@ pub(crate) struct Params {
 
 impl Params {
     /// Pause output until a condition is met.
-    pub fn start_paused(&self) -> bool {
+    pub const fn start_paused(&self) -> bool {
         self.on_error || self.on_fail
     }
 
@@ -118,6 +119,10 @@ impl Params {
     }
 }
 
+/// Parse a duration from a parameter.
+///
+/// This ensures durations are not negative, that raw numbers are treated as
+/// seconds, and that durations are not more precise than milliseconds.
 fn parse_duration(input: &str) -> anyhow::Result<Duration> {
     let input = input.trim();
 
@@ -131,6 +136,8 @@ fn parse_duration(input: &str) -> anyhow::Result<Duration> {
             .map_err(Into::into)
     } else {
         let duration = duration_str::parse(input)?;
+        // subsec_nanos() will always be >= subsec_millis() * 1e6
+        #[allow(clippy::arithmetic_side_effects)]
         if duration.subsec_nanos() == duration.subsec_millis() * 1_000_000 {
             Ok(duration)
         } else {
@@ -161,9 +168,9 @@ impl Default for ColorChoice {
 impl From<ColorChoice> for termcolor::ColorChoice {
     fn from(choice: ColorChoice) -> Self {
         match choice {
-            ColorChoice::Auto => termcolor::ColorChoice::Auto,
-            ColorChoice::Always => termcolor::ColorChoice::Always,
-            ColorChoice::Never => termcolor::ColorChoice::Never,
+            ColorChoice::Auto => Self::Auto,
+            ColorChoice::Always => Self::Always,
+            ColorChoice::Never => Self::Never,
         }
     }
 }

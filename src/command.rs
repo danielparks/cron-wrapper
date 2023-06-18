@@ -115,11 +115,25 @@ pub struct Command {
     pub buffer_size: usize,
 }
 
+/// The state of a [`Child`].
+///
+/// This tracks what to do on the next call to [`Child::next_event()`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum State {
+    /// Deal with events in the queue returned by [`Child::poll()`] or call
+    /// [`Child::poll()`] again to get the next events.
     Polling,
+
+    /// Read from a child output stream. This happens when the buffer was too
+    /// small to read everything on the first call to [`Child::next_event()`].
     Reading(StreamType),
+
+    /// All output streams have closed; all that’s left is to wait for the child
+    /// to exit.
     Exiting,
+
+    /// The child already exited. Nothing more to do; [`Child::next_event()`]
+    /// should now always return `None`.
     Exited,
 }
 
@@ -147,7 +161,7 @@ pub enum Event<'a> {
 
 impl<'a> Event<'a> {
     /// Make the correct type of read event given a [`StreamType`].
-    fn make_read(stream: StreamType, output: &'a [u8]) -> Self {
+    const fn make_read(stream: StreamType, output: &'a [u8]) -> Self {
         match stream {
             StreamType::Stdout => Self::Stdout(output),
             StreamType::Stderr => Self::Stderr(output),
@@ -165,7 +179,11 @@ impl<'a> Event<'a> {
     pub fn exit_code(&self) -> Option<i32> {
         if let Self::Exit(status) = self {
             // FIXME: broken on windows.
-            status.code().or_else(|| Some(128 + status.signal()?))
+            status
+                .code()
+                // status.signal() shouldn’t be >32, but we use saturating_add()
+                // just to be safe.
+                .or_else(|| Some(status.signal()?.saturating_add(128)))
         } else {
             None
         }
@@ -175,14 +193,34 @@ impl<'a> Event<'a> {
 /// A running [`Command`].
 #[derive(Debug)]
 pub struct Child {
+    /// Underlying [`process::Child`] object.
     process: process::Child,
+
+    /// In progress run timeout. Should be [`Timeout::Never`] or
+    /// [`Timeout::Pending`].
     run_timeout: Timeout,
+
+    /// Configured idle timeout. Should be [`Timeout::Never`] or
+    /// [`Timeout::Future`].
     idle_timeout: Timeout,
+
+    /// Sources for polling.
     sources: popol::Sources<StreamType>,
+
+    /// Internal events returned by polling.
     events: VecDeque<popol::Event<StreamType>>,
+
+    /// The child’s stdout stream.
     stdout: process::ChildStdout,
+
+    /// The child’s stderr stream.
     stderr: process::ChildStderr,
+
+    /// The current state for [`Child::next_event()`].
     state: State,
+
+    /// The buffer used to store the latest read from an child’s output stream.
+    /// This is referenced from [`Event::Stdout`] and [`Event::Stderr`].
     buffer: Vec<u8>,
 }
 
@@ -206,7 +244,7 @@ impl Command {
         S: Into<OsString>,
         I: IntoIterator<Item = S>,
     {
-        Command {
+        Self {
             command: command.into(),
             args: args.into_iter().map(Into::into).collect(),
             run_timeout: Timeout::Never,
@@ -407,7 +445,7 @@ impl Command {
 
     /// Get the command line to run as an iterator over words.
     #[must_use]
-    pub fn command_line(&self) -> WordIterator {
+    pub const fn command_line(&self) -> WordIterator {
         WordIterator {
             command: self,
             iter: None,
@@ -442,7 +480,7 @@ impl Child {
     /// assert!(child.process().id() > 0);
     /// ```
     #[must_use]
-    pub fn process(&self) -> &process::Child {
+    pub const fn process(&self) -> &process::Child {
         &self.process
     }
 
@@ -684,7 +722,13 @@ impl Child {
 
 /// An iterator that produces the words in the command line.
 pub struct WordIterator<'a> {
+    /// The [`Command`] we’re getting the command line for.
     command: &'a Command,
+
+    /// Iterator state:
+    ///
+    /// * `None`: next is the command itself.
+    /// * `Some(iter)`: use `iter` (which points to `self.command.args`).
     iter: Option<std::slice::Iter<'a, OsString>>,
 }
 
@@ -721,7 +765,7 @@ fn timeout_error(timeout: &Timeout, expired: Timeout) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assert2::check;
+    use assert2::{assert, check};
 
     #[test]
     fn echo_ok() {
@@ -729,9 +773,11 @@ mod tests {
 
         let mut count = 0;
         while let Some(event) = child.next_event() {
+            #[allow(clippy::arithmetic_side_effects)] // See assert
             match event {
                 Event::Stdout(output) => {
                     check!(output == b"ok\n");
+                    assert!(count < 10, "expected only 1 line of output");
                     count += 1;
                 }
                 Event::Stderr(output) => {
@@ -786,6 +832,7 @@ mod tests {
 
         let mut count = 0;
         while let Some(event) = child.next_event() {
+            #[allow(clippy::arithmetic_side_effects)] // See count += 1
             match event {
                 Event::Stdout(output) => {
                     panic!("unexpected stdout: {output:?}");
@@ -823,6 +870,7 @@ mod tests {
 
         let mut count = 0;
         while let Some(event) = child.next_event() {
+            #[allow(clippy::arithmetic_side_effects)] // See assert
             match event {
                 Event::Stdout(output) => {
                     panic!("unexpected stdout: {output:?}");
@@ -834,6 +882,7 @@ mod tests {
                     timeout: Timeout::Expired { .. },
                 }) => {
                     // We'll get this multiple times.
+                    assert!(count < 1000, "expected around 100 idle timeouts");
                     count += 1;
                 }
                 Event::Error(error) => {

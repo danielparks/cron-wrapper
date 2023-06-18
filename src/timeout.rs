@@ -143,9 +143,11 @@ impl Timeout {
     pub fn elapsed_rounded(&self) -> Duration {
         // FIXME: actually consult resolution?
         let elapsed = self.elapsed();
-        let nanos = elapsed.subsec_nanos();
+        let nanos: u32 = elapsed.subsec_nanos();
         let sub_ms = nanos % 1_000_000;
 
+        // sub_ms is nanos % 1e6, so sub_ms <= nanos
+        #[allow(clippy::arithmetic_side_effects)]
         let rounded = if sub_ms < 500_000 {
             nanos - sub_ms
         } else {
@@ -186,10 +188,7 @@ impl From<Duration> for Timeout {
 
 impl From<Option<Duration>> for Timeout {
     fn from(timeout: Option<Duration>) -> Self {
-        match timeout {
-            Some(timeout) => Self::from(timeout),
-            None => Self::Never,
-        }
+        timeout.map(Self::from).unwrap_or(Self::Never)
     }
 }
 
@@ -219,11 +218,14 @@ impl PartialEq for Timeout {
 
 #[cfg(test)]
 mod tests {
+    // This triggers for the various compare_ tests.
+    #![allow(clippy::cognitive_complexity)]
+
     use super::*;
     use assert2::{check, let_assert};
     use std::time::Duration;
 
-    fn future_timeout(microseconds: u64) -> Timeout {
+    const fn future_timeout(microseconds: u64) -> Timeout {
         Timeout::Future {
             timeout: Duration::from_micros(microseconds),
         }
@@ -238,7 +240,7 @@ mod tests {
         }
     }
 
-    fn expired_timeout(microseconds: u64) -> Timeout {
+    const fn expired_timeout(microseconds: u64) -> Timeout {
         Timeout::Expired {
             requested: Duration::from_micros(microseconds),
             actual: Duration::from_micros(microseconds),
