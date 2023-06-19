@@ -7,9 +7,17 @@ use termcolor::{
 
 /// Object to either buffer or write output from a job.
 pub struct PausableWriter {
+    /// Whether or not we are currently paused.
     paused: bool,
+
+    /// What to write to when unpaused.
     writer: StandardStream,
+
+    /// The writer that writes to `buffer`. Needed because we use [`termcolor`]
+    /// rather than just writing to a normal `Vec<u8>` buffer.
     buffer_writer: BufferWriter,
+
+    /// The buffer to fill while we are paused.
     buffer: Buffer,
 }
 
@@ -28,7 +36,7 @@ impl PausableWriter {
     }
 
     /// Whether or not this is paused
-    pub fn is_paused(&self) -> bool {
+    pub const fn is_paused(&self) -> bool {
         self.paused
     }
 

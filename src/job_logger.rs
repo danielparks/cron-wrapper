@@ -13,7 +13,7 @@ use termcolor::WriteColor;
 use time::format_description::well_known::{iso8601, Iso8601};
 use time::OffsetDateTime;
 
-// Date and time format to use in log file names.
+/// Date and time format to use in log file names.
 const FILE_NAME_DATE_FORMAT: iso8601::EncodedConfig = iso8601::Config::DEFAULT
     .set_time_precision(iso8601::TimePrecision::Second {
         decimal_digits: None,
@@ -37,11 +37,31 @@ const FILE_NAME_DATE_FORMAT: iso8601::EncodedConfig = iso8601::Config::DEFAULT
 /// ```
 #[derive(Debug)]
 pub struct JobLogger {
+    /// Destinations to which to send logs.
     destinations: Vec<Destination>,
+
+    /// [`Instant`] when the job started, so we can get the elapsed time.
     start_instant: Instant,
+
+    /// [`OffsetDateTime`] when the job started, so we know the absolute time
+    /// when the job started.
     start_time: OffsetDateTime,
+
+    /// The [`Command`] used by the job. This is used to name the log file (for
+    /// [`Destination::Directory`]) and write the header for the log file.
+    ///
+    /// This should be set, but it’s convenient to make this optional so that
+    /// the job logger can be initialized before the job.
     command: Option<Command>,
+
+    /// The PID of the child process. This is used to name the log file (for
+    /// [`Destination::Directory`]).
+    ///
+    /// This should be set, but it’s convenient to make this optional so that
+    /// the job logger can be initialized before the job is started.
     child_id: Option<u32>,
+
+    /// Track what the [`JobLogger`] has already written.
     state: State,
 }
 
@@ -55,7 +75,7 @@ impl JobLogger {
     /// Create a new job logger that will silently discard all logs.
     #[must_use]
     pub fn none() -> Self {
-        JobLogger {
+        Self {
             destinations: vec![],
             start_instant: Instant::now(),
             start_time: OffsetDateTime::now_local()
@@ -233,10 +253,16 @@ impl JobLogger {
         }
 
         let time = format!("{:.3}", self.elapsed());
-        let indent = time.len() + 5;
+        let indent = time.len().checked_add(5).expect("indent too large");
 
         let mut buffer = Vec::with_capacity(
-            time.len() + kind.as_bytes().len() + value.len() + 5,
+            time.len()
+                .checked_add(kind.as_bytes().len())
+                .expect("buffer too large")
+                .checked_add(value.len())
+                .expect("buffer too large")
+                .checked_add(5)
+                .expect("buffer too large"),
         );
         buffer.extend_from_slice(time.as_bytes());
 
@@ -268,7 +294,13 @@ impl JobLogger {
             "Tried to write metadata after a record."
         );
 
-        let mut buffer = Vec::with_capacity(key.len() + 2 + value.len() + 1);
+        let mut buffer = Vec::with_capacity(
+            key.len()
+                .checked_add(value.len())
+                .expect("buffer too large")
+                .checked_add(2 + 1)
+                .expect("buffer too large"),
+        );
         buffer.extend_from_slice(key.as_bytes());
         buffer.extend_from_slice(b": ");
         self.write_all(&buffer)?;
@@ -361,10 +393,16 @@ impl JobLogger {
         &self,
         directory: &Path,
     ) -> anyhow::Result<Destination> {
+        /// We only try up to 100 times to create a log file. Since log files
+        /// are named with a timestamp and a process ID, this should be way more
+        /// than enough.
         const MAX_ATTEMPTS: usize = 100;
+
         let base = self.generate_file_name_base()?;
         let mut number = String::new();
-        let mut file_name = OsString::with_capacity(base.len() + 4);
+        let mut file_name = OsString::with_capacity(
+            base.len().checked_add(4).expect("buffer too large"),
+        );
         let mut path = PathBuf::new();
 
         // The first attempt won‘t have a number in the file name, and each
@@ -593,19 +631,30 @@ enum State {
     Continuation,
 }
 
-/// Used to keep track of how various event types should be displayed.
+/// The kind of record to be written. This is more low-level than [`Event`], and
+/// can represent an error in cron-wrapper that could not be represented by
+/// [`Event::Error`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Kind {
+    /// Output on the child process’s stdout.
     Stdout,
+
+    /// Output on the child process’s stderr.
     Stderr,
+
+    /// Child process exited.
     Exit,
+
+    /// Error reading or polling the child process.
     Error,
+
+    /// Error in cron-wrapper.
     WrapperError,
 }
 
 impl Kind {
     /// Serialize to a byte string.
-    fn as_bytes(self) -> &'static [u8] {
+    const fn as_bytes(self) -> &'static [u8] {
         match self {
             Self::Stdout => b"out",
             Self::Stderr => b"err",
@@ -616,12 +665,12 @@ impl Kind {
     }
 
     /// Is this an output (stdout or stderr)?
-    fn is_output(self) -> bool {
+    const fn is_output(self) -> bool {
         matches!(self, Self::Stdout | Self::Stderr)
     }
 
     /// Is this an error (stderr, error, wrapper-error)?
-    fn is_any_error(self) -> bool {
+    const fn is_any_error(self) -> bool {
         matches!(self, Self::Stderr | Self::Error | Self::WrapperError)
     }
 
@@ -712,7 +761,7 @@ mod tests {
     }
 
     /// Create an `IdleTimeout` error event.
-    fn event_idle_timeout() -> Event<'static> {
+    const fn event_idle_timeout() -> Event<'static> {
         Event::Error(command::Error::IdleTimeout {
             timeout: Timeout::Expired {
                 requested: Duration::ZERO,
@@ -738,7 +787,7 @@ mod tests {
     }
 
     /// Check the output buffer against a regex.
-    fn check_output(output: Rc<RefCell<Vec<u8>>>, re: &str) {
+    fn check_output(output: &Rc<RefCell<Vec<u8>>>, re: &str) {
         let output = output.borrow();
         let re = bytes::Regex::new(&expand_re(re)).unwrap();
 
@@ -774,7 +823,7 @@ mod tests {
         //     0.000 WRAPPER-ERROR uh oh
         //
         check_output(
-            output,
+            &output,
             "^Start: <date>T<time+>\n\
             \n\
             \\d\\.\\d{3} out abc\n\
@@ -799,7 +848,7 @@ mod tests {
         //     0.000 \ exit 0
         //
         check_output(
-            output,
+            &output,
             "^Start: <date>T<time+>\n\
             \n\
             \\d\\.\\d{3} out abc\n\
@@ -825,7 +874,7 @@ mod tests {
         //     0.000 out def
         //
         check_output(
-            output,
+            &output,
             "^Start: <date>T<time+>\n\
             \n\
             \\d\\.\\d{3} out abc\n\
@@ -851,7 +900,7 @@ mod tests {
         //     0.000 \ out def
         //
         check_output(
-            output,
+            &output,
             "^Start: <date>T<time+>\n\
             \n\
             \\d\\.\\d{3} out abc\n\
