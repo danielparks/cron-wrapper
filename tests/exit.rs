@@ -21,6 +21,7 @@ fn child_success() {
     check!(output.status.success());
     check!(output.stdout.as_bstr() == "");
     check!(output.stderr.as_bstr() == "");
+    panic!("boom {:?}", output);
 }
 
 #[test]
