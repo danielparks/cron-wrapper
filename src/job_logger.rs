@@ -645,7 +645,7 @@ enum State {
 /// can represent an error in cron-wrapper that could not be represented by
 /// [`Event::Error`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Kind {
+pub enum Kind {
     /// Output on the child process’s stdout.
     Stdout,
 
@@ -664,7 +664,8 @@ enum Kind {
 
 impl Kind {
     /// Serialize to a byte string.
-    const fn as_bytes(self) -> &'static [u8] {
+    #[must_use]
+    pub const fn as_bytes(self) -> &'static [u8] {
         match self {
             Self::Stdout => b"out",
             Self::Stderr => b"err",
@@ -675,12 +676,14 @@ impl Kind {
     }
 
     /// Is this an output (stdout or stderr)?
-    const fn is_output(self) -> bool {
+    #[must_use]
+    pub const fn is_output(self) -> bool {
         matches!(self, Self::Stdout | Self::Stderr)
     }
 
     /// Is this an error (stderr, error, wrapper-error)?
-    const fn is_any_error(self) -> bool {
+    #[must_use]
+    pub const fn is_any_error(self) -> bool {
         matches!(self, Self::Stderr | Self::Error | Self::WrapperError)
     }
 
