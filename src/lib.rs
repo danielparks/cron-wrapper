@@ -1,7 +1,7 @@
 //! Miscellaneous useful modules that support cron-wrapper.
 
-// Most lint configuration is in lints.toml, but that isn’t supported by
-// cargo-geiger, and it only supports deny, not forbid.
+// Most lint configuration is in lints.toml, but it doesn’t support forbid, nor
+// is it supported by cargo-geiger.
 #![forbid(unsafe_code)]
 
 /// Read output from child process as events.

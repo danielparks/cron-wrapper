@@ -1,6 +1,6 @@
 //! `cron-wrapper` executable.
 
-// Most lint configuration is in Cargo.toml. It requires nightly.
+// Most lint configuration is in lints.toml, but it doesn’t support forbid.
 #![forbid(unsafe_code)]
 
 use anyhow::{bail, Context};
