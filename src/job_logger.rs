@@ -1,3 +1,13 @@
+//! # Log all events from a [`Command`]
+//!
+//! This provides a way to produce a structured log file containing information
+//! about the run of a [`Command`]. The log will contain the command line, the
+//! start time, and a log of all [`Event`]s and their time offset from when the
+//! process was spawned.
+//!
+//! It can also log errors arising from IO with the child process, and errors
+//! from the parent process.
+
 use crate::command::{Child, Command, Event};
 use log::info;
 use std::cell::RefCell;

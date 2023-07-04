@@ -20,7 +20,6 @@ use std::process;
 use std::rc::Rc;
 use termcolor::{Color, ColorSpec, WriteColor};
 
-/// Parameters for the executable.
 mod params;
 use params::Params;
 
