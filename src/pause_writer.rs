@@ -1,3 +1,15 @@
+//! # Stdout writer that can be paused
+//!
+//! This is useful in situations where you don’t know if you‘ll want output
+//! until after it’s started. For example, you might have an application that
+//! logs context information that’s only important after an error occurs. It can
+//! write that context to a [`PausableWriter`], then when the context is needed
+//! it can call [`PausableWriter::unpause()`] to pass it along to the internal
+//! writer.
+//!
+//! Currently this only works for stdout, since it uses [termcolor] to support
+//! writing color information.
+
 use std::fmt;
 use std::io;
 use std::io::Write;

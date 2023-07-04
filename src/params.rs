@@ -1,3 +1,5 @@
+//! Manage parameters for `cron-wrapper`.
+
 use anyhow::anyhow;
 use clap::{Parser, ValueEnum};
 use is_terminal::IsTerminal;

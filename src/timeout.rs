@@ -1,3 +1,15 @@
+//! # Stateful timeouts
+//!
+//! [`Timeout`] provides a way to keep track of timeout that may or may not have
+//! started. It simplifies managing long running timeouts, particularly when
+//! they cover a number of function calls that each have their own timeouts.
+//!
+//! For example, you might want to allow an overall timeout for an entire run of
+//! your application. If your application makes calls that have their own
+//! timeouts, such as reading from a [`std::net::TcpStream`], you will need to
+//! set the timeout for the read correctly so that you don’t exceed the overall
+//! timeout.
+
 use std::cmp::Ordering;
 use std::fmt;
 use std::time::{Duration, Instant};

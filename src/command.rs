@@ -1,3 +1,16 @@
+//! # Read output from child process as events
+//!
+//! This allows getting output from a child process on both stdout and stderr
+//! as (mostly) in-order [`Event`]s in an iterator. This includes errors reading
+//! or waiting for input, and the child exiting.
+//!
+//! ## Event ordering
+//!
+//! Events are only _mostly_ in order because there is an unavoidable race
+//! condition involved in reading two or more streams. If the child process
+//! writes to stdout and then immediately writes to stderr, it may be too fast
+//! for the reading process to catch.
+
 use crate::timeout::Timeout;
 use bstr::ByteSlice;
 use log::{debug, error, info, trace};
