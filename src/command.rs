@@ -27,6 +27,22 @@ use std::process;
 use std::time::Duration;
 use thiserror::Error;
 
+/// Re-export [`kill()`] and [`Signal`] from [nix] for convenience.
+///
+/// [`kill()`]: https://docs.rs/nix/latest/nix/sys/signal/fn.kill.html
+/// [`Signal`]: https://docs.rs/nix/latest/nix/sys/signal/enum.Signal.html
+pub use nix::sys::signal::{kill, Signal};
+
+/// Re-export [`Pid`] from [nix] for convenience.
+///
+/// [`Pid`]: https://docs.rs/nix/latest/nix/unistd/struct.Pid.html
+pub use nix::unistd::Pid;
+
+/// Re-export [`Result`] from [nix] for convenience.
+///
+/// [`Result`]: https://docs.rs/nix/latest/nix/type.Result.html
+pub use nix::Result as NixResult;
+
 /// Maximum timeout that poll allows.
 ///
 /// For the standard `poll()` syscall, this is [`i32::MAX`] milliseconds, or
@@ -484,6 +500,18 @@ impl Child {
         self.process.id()
     }
 
+    /// Get the child’s process ID as a [`Pid`]. This is useful when working
+    /// with [nix].
+    ///
+    /// # Panics
+    ///
+    /// This will panic if it can’t convert the child PID from `u32` to `i32`,
+    /// which should never happen.
+    #[must_use]
+    pub fn pid(&self) -> Pid {
+        Pid::from_raw(self.id().try_into().unwrap())
+    }
+
     /// Get a reference to the underlying [`process::Child`] for the child.
     ///
     /// ```rust
@@ -521,8 +549,45 @@ impl Child {
     /// let mut child = Command::new("/bin/echo", ["hello"]).spawn().unwrap();
     /// assert!(child.process_mut().wait().unwrap().success());
     /// ```
+    #[must_use]
     pub fn process_mut(&mut self) -> &mut process::Child {
         &mut self.process
+    }
+
+    /// Send a signal to the child. See [`nix::sys::signal::kill()`].
+    ///
+    /// ```rust
+    /// use assert2::{check, let_assert};
+    /// use cron_wrapper::command::{Command, Event, Signal};
+    ///
+    /// let mut child = Command::new("/bin/sleep", ["100"]).spawn().unwrap();
+    /// child.kill(Signal::SIGKILL).unwrap();
+    ///
+    /// let_assert!(Some(Event::Exit(status)) = child.next_event());
+    /// check!(!status.success());
+    /// ```
+    ///
+    /// # Errors
+    ///
+    /// This could return errors for reasons that [`kill(2)` might return
+    /// errors](https://man7.org/linux/man-pages/man2/kill.2.html#ERRORS). In
+    /// practise this means that it will return an error if you try to use it
+    /// after the child process has exited and been cleaned up by `next_event()`
+    /// or `process_mut().wait()`.
+    ///
+    /// ```rust
+    /// use cron_wrapper::command::{Command, Signal};
+    ///
+    /// let mut child = Command::new("/bin/test", ["1"]).spawn().unwrap();
+    /// child.process_mut().wait().unwrap();
+    ///
+    /// child.kill(Signal::SIGKILL).unwrap_err();
+    /// ```
+    pub fn kill<S: Into<Option<Signal>>>(
+        &mut self,
+        signal: S,
+    ) -> NixResult<()> {
+        kill(self.pid(), signal)
     }
 
     /// Get next event from child (will wait).
