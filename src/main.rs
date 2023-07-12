@@ -115,7 +115,13 @@ fn start(params: &Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
                 // again as a “wrapper” error.
                 if params.normal_output_enabled() {
                     eprintln!("Error: {error:#}");
+                } else {
+                    error!("{error:#}");
                 }
+
+                info!("Sending signal {} to child", params.child_signal);
+                child.kill(params.child_signal)?;
+
                 process::exit(1);
             }
         }
