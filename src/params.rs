@@ -2,12 +2,15 @@
 
 use anyhow::anyhow;
 use clap::{Parser, ValueEnum};
+use cron_wrapper::command::Signal;
 use is_terminal::IsTerminal;
 use log::{log_enabled, Level::Trace};
 use std::convert::Into;
 use std::ffi::OsString;
+use std::fmt;
 use std::io;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 
 /// Parameters for `cron-wrapper`.
@@ -90,6 +93,13 @@ pub struct Params {
     )]
     pub idle_timeout: Option<Duration>,
 
+    /// What signal to send the child process when a timeout or other error
+    /// occurs.
+    ///
+    /// This may be set to "none" to skip killing the child process.
+    #[clap(long, default_value = "SIGTERM", value_name = "SIGNAL")]
+    pub error_signal: OptionalSignal,
+
     /// Hidden: how large a buffer to use
     #[clap(
         long,
@@ -144,6 +154,60 @@ fn parse_duration(input: &str) -> anyhow::Result<Duration> {
             Ok(duration)
         } else {
             Err(anyhow!("duration cannot be more precise than milliseconds"))
+        }
+    }
+}
+
+/// Clap’s `value_parser` parameter can’t parse to Option<Signal>, so this is a
+/// hack to allow `--error-signal none`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OptionalSignal {
+    /// No signal.
+    None,
+
+    /// A normal signal.
+    Some(Signal),
+}
+
+impl OptionalSignal {
+    /// Is this `Some(Signal)`?
+    pub const fn is_some(self) -> bool {
+        matches!(self, Self::Some(_))
+    }
+}
+
+impl fmt::Display for OptionalSignal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::None => f.write_str("none"),
+            Self::Some(signal) => signal.fmt(f),
+        }
+    }
+}
+
+impl FromStr for OptionalSignal {
+    type Err = nix::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let s = s.to_ascii_uppercase();
+        if s == "0" || s == "NONE" {
+            Ok(Self::None)
+        } else if s.starts_with("SIG") {
+            Ok(Self::Some(Signal::from_str(&s)?))
+        } else {
+            // Not real arithmetic.
+            #[allow(clippy::arithmetic_side_effects)]
+            let s = "SIG".to_owned() + &s;
+            Ok(Self::Some(Signal::from_str(&s)?))
+        }
+    }
+}
+
+impl From<OptionalSignal> for Option<Signal> {
+    fn from(signal: OptionalSignal) -> Self {
+        match signal {
+            OptionalSignal::None => None,
+            OptionalSignal::Some(signal) => Some(signal),
         }
     }
 }
