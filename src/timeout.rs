@@ -168,6 +168,14 @@ impl Timeout {
 
         Duration::new(elapsed.as_secs(), rounded)
     }
+
+    /// Will this never time out?
+    ///
+    /// Returns `true` for [`Timeout::Never`] and `false` for everything else.
+    #[must_use]
+    pub const fn is_never(&self) -> bool {
+        matches!(self, Self::Never)
+    }
 }
 
 impl fmt::Display for Timeout {
