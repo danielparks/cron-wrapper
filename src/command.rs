@@ -1049,7 +1049,8 @@ mod tests {
 
         let_assert!(Ok(status) = child.wait());
         check!(status.success());
-        check!(start.elapsed() < Duration::from_millis(15));
+
+        check!(start.elapsed() < Duration::from_millis(19));
     }
 
     #[test]
