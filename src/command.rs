@@ -85,11 +85,8 @@ pub enum Error {
     },
 
     /// Error originating specifically from [`popol::Sources::poll()`].
-    #[error("Error while waiting for input: {error}")]
-    Poll {
-        /// The error raised by [`popol::Sources::poll()`].
-        error: io::Error,
-    },
+    #[error("Error while waiting for input: {0}")]
+    Poll(io::Error),
 
     /// Error originating specifically from [`process::Child::wait()`] or
     /// [`process::Child::try_wait()`].
@@ -798,7 +795,7 @@ impl Child {
                     || error.kind() != io::ErrorKind::TimedOut
                 {
                     // Return all other errors.
-                    return Err(Error::Poll { error });
+                    return Err(Error::Poll(error));
                 }
             }
         }
