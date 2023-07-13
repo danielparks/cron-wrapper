@@ -91,6 +91,11 @@ pub enum Error {
         error: io::Error,
     },
 
+    /// Error originating specifically from [`process::Child::wait()`] or
+    /// [`process::Child::try_wait()`].
+    #[error("Error while waiting for child to exit: {0}")]
+    Wait(io::Error),
+
     /// Error originating specifically from [`process::ChildStdout::read()`] or
     /// [`process::ChildStderr::read()`].
     #[error("Error reading from child {stream}: {error}")]
@@ -684,13 +689,69 @@ impl Child {
         }
 
         if self.state == State::Exiting {
-            let status = self.process.wait().expect("failed to wait on child");
-            self.state = State::Exited;
-            Some(Event::Exit(status))
+            match self.wait() {
+                Ok(status) => Some(Event::Exit(status)),
+                Err(error) => Some(Event::Error(error)),
+            }
         } else if self.state == State::Exited {
             None
         } else {
             unreachable!("state is {:?}", self.state);
+        }
+    }
+
+    /// Wait for the child process to exit.
+    ///
+    /// This honors timeouts, including [`Command::idle_timeout()`].
+    ///
+    /// This does a busy wait if a timeout is set since otherwise we’d have to
+    /// use a signal, and that could interrupt other threads.
+    ///
+    /// # Errors
+    ///
+    /// This may return [`Error::Wait`], [`Error::IdleTimeout`], or
+    /// [`Error::RunTimeout`].
+    pub fn wait(&mut self) -> Result<process::ExitStatus, Error> {
+        let original_timeout = cmp::min(&self.run_timeout, &self.idle_timeout);
+        trace!(
+            "wait() with timeout {original_timeout} (run timeout {})",
+            self.run_timeout
+        );
+
+        if original_timeout.is_never() {
+            // No timeout, so we can use the normal wait() call.
+            let status = self.process.wait().map_err(Error::Wait)?;
+            self.state = State::Exited;
+            return Ok(status);
+        }
+
+        // If this is an overall run timeout, starting it again will just return
+        // a clone of it.
+        let timeout = original_timeout.start();
+
+        // wait() does this internally, but try_wait() does not.
+        drop(self.process.stdin.take());
+
+        loop {
+            // Check for time out.
+            if let Some(expired) = timeout.check_expired() {
+                return Err(timeout_error(original_timeout, expired));
+            }
+
+            // Check for child process exit.
+            match self.process.try_wait().map_err(Error::Wait)? {
+                Some(status) => {
+                    self.state = State::Exited;
+                    return Ok(status);
+                }
+                None => {
+                    // FIXME: busy wait. Could use a signal? Could sleep for
+                    // longer?
+                    // FIXME: the timeout comparison doesn’t round, so if it’s
+                    // within a 1ms of the timeout it will exit.
+                    std::thread::yield_now();
+                }
+            }
         }
     }
 
@@ -843,7 +904,8 @@ fn timeout_error(timeout: &Timeout, expired: Timeout) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assert2::{assert, check};
+    use assert2::{assert, check, let_assert};
+    use std::time::{Duration, Instant};
 
     #[test]
     fn echo_ok() {
@@ -978,5 +1040,49 @@ mod tests {
 
         check!(child.next_event().is_none());
         check!(child.next_event().is_none());
+    }
+
+    #[test]
+    fn wait_no_timeout() {
+        let start = Instant::now();
+        let mut child = Command::new("/bin/sleep", ["0.01"]).spawn().unwrap();
+
+        let_assert!(Ok(status) = child.wait());
+        check!(status.success());
+
+        let_assert!(Ok(status) = child.wait());
+        check!(status.success());
+        check!(start.elapsed() < Duration::from_millis(15));
+    }
+
+    #[test]
+    fn wait_idle_timeout() {
+        let start = Instant::now();
+        let mut child = Command::new("/bin/sleep", ["0.02"])
+            .idle_timeout(Duration::from_millis(15))
+            .spawn()
+            .unwrap();
+
+        let_assert!(Err(Error::IdleTimeout { .. }) = child.wait());
+        check!(start.elapsed() < Duration::from_millis(20));
+
+        let_assert!(Ok(status) = child.wait());
+        check!(status.success());
+        check!(start.elapsed() >= Duration::from_millis(20));
+    }
+
+    #[test]
+    fn wait_run_timeout() {
+        let start = Instant::now();
+        let mut child = Command::new("/bin/sleep", ["0.02"])
+            .run_timeout(Duration::from_millis(15))
+            .spawn()
+            .unwrap();
+
+        let_assert!(Err(Error::RunTimeout { .. }) = child.wait());
+        check!(start.elapsed() < Duration::from_millis(20));
+
+        let_assert!(Err(Error::RunTimeout { .. }) = child.wait());
+        check!(start.elapsed() < Duration::from_millis(20));
     }
 }
