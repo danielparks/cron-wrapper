@@ -422,9 +422,17 @@ impl Command {
     /// let_assert!(Some(Event::Exit(status)) = child2.next_event());
     /// check!(status.success());
     /// ```
+    ///
     /// # Errors
     ///
-    /// May return [`Error::Spawn`].
+    /// This may return [`Error::Spawn`] if there was an error in
+    /// [`process::Command::spawn()`].
+    ///
+    /// # Panics
+    ///
+    /// This will panic if it can’t get the stdout or stderr stream for the
+    /// child process, or if it can’t set those streams to non-blocking. I don’t
+    /// think these situations should ever happen.
     pub fn spawn(&self) -> Result<Child, Error> {
         let command = self.command.clone();
         let args = &self.args;
