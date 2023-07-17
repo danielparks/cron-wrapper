@@ -23,15 +23,23 @@ use termcolor::{Color, ColorSpec, WriteColor};
 mod params;
 use params::Params;
 
-fn main() {
-    if let Err(error) = cli(&Params::parse()) {
+/// Wrapper to handle errors.
+///
+/// See [`cli()`].
+fn main() -> ! {
+    process::exit(cli(&Params::parse()).unwrap_or_else(|error| {
         eprintln!("Error: {error:#}");
-        process::exit(1);
-    }
+        1
+    }))
 }
 
-/// Initialize logging and start the child. Handle errors.
-fn cli(params: &Params) -> anyhow::Result<()> {
+/// Initialize logging and start the child.
+///
+/// # Errors
+///
+/// This tries to log errors encountered after logging is started, and returns
+/// all errors to [`main()`] to be outputted nicely.
+fn cli(params: &Params) -> anyhow::Result<i32> {
     init_logging(params)?;
 
     let mut job_logger = init_job_logger(params)?;
@@ -45,7 +53,7 @@ fn cli(params: &Params) -> anyhow::Result<()> {
 }
 
 /// Start the child process.
-fn start(params: &Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
+fn start(params: &Params, job_logger: &mut JobLogger) -> anyhow::Result<i32> {
     let command = Command {
         command: params.command.clone().into(),
         args: params.args.clone(),
@@ -108,7 +116,7 @@ fn start(params: &Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
                 }
 
                 info!("Exit with {code}: {}", command.command_line_sh());
-                process::exit(code);
+                return Ok(code);
             }
             Event::Error(error) => {
                 // Don’t return this error since that will cause it to be logged
@@ -126,7 +134,7 @@ fn start(params: &Params, job_logger: &mut JobLogger) -> anyhow::Result<()> {
                     info!("Skipping sending signal to child");
                 }
 
-                process::exit(1);
+                return Ok(1);
             }
         }
     }
