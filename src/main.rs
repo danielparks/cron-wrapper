@@ -46,7 +46,10 @@ fn cli(params: &Params) -> anyhow::Result<i32> {
 
     start(params, &mut job_logger).map_err(|error| {
         if let Err(error2) = job_logger.log_wrapper_error(&error) {
-            error!("Encountered error2 while logging another error. Error2: {error2:?}");
+            error!(
+                "Encountered error2 while logging another error. \
+                Error2: {error2:?}"
+            );
         }
         error
     })
