@@ -614,6 +614,8 @@ fn escape_value(input: &[u8], indent: usize, expect_newline: bool) -> Vec<u8> {
         escape_byte_into(last, &mut output);
 
         if last == b'\n' {
+            // FIXME: if expect_newline is false, then a trailing newline should
+            // be specially encoded.
             return output;
         }
     }

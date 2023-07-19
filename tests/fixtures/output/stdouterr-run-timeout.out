@@ -1,0 +1,12 @@
+Command: ["tests/fixtures/stdouterr.sh"]
+Start: 2023-07-26T13:30:52.377328000-07:00
+
+0.004 out 01 stdout
+0.004 out 02 stdout
+0.004 err 03 STDERR
+          04 STDERR sleep 0.1
+0.111 out 05 stdout sleep 0.1
+0.217 out 07 stdout \
+0.217 err 06 STDERR 08 STDERR
+          09 STDERR sleep 0.2 \
+0.301 ERROR RunTimeout { timeout: Expired { requested: 300ms, actual: 300.699222ms } }

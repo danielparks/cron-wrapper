@@ -1,0 +1,7 @@
+Command: ["tests/fixtures/midline_sleep.sh"]
+Start: 2023-07-26T13:32:22.387293000-07:00
+
+0.003 out 111\
+0.108 out 222\
+0.218 out 333
+0.218 exit 0

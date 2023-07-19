@@ -9,6 +9,7 @@
 //! from the parent process.
 
 mod logger;
+pub mod parser;
 pub use logger::*;
 
 /// The kind of record to be written. This is more low-level than [`Event`], and
@@ -56,4 +57,33 @@ impl Kind {
     pub const fn is_any_error(self) -> bool {
         matches!(self, Self::Stderr | Self::Error | Self::WrapperError)
     }
+
+    /// How are trailing newlines handled?
+    ///
+    /// See [`TrailingNewline`].
+    #[must_use]
+    pub const fn newline_behavior(self) -> TrailingNewline {
+        if self.is_output() {
+            TrailingNewline::Implicit
+        } else {
+            TrailingNewline::Explicit
+        }
+    }
+}
+
+/// How to treat trailing newlines in a value.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TrailingNewline {
+    /// Values have an implicit trailing newline; to produce a value without
+    /// a trailing newline you have to end the value with a backslash.
+    ///
+    /// This is only used for output records, i.e. events that have
+    /// [`Kind::Stdout`] and [`Kind::Stderr`].
+    Implicit,
+
+    /// Values don’t have a trailing newline unless one is explicitly included.
+    ///
+    /// This is used for everything except output records, e.g. metadata, error
+    /// records, and exit records.
+    Explicit,
 }
