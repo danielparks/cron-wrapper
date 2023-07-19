@@ -1,14 +1,7 @@
-//! # Log all events from a [`Command`]
-//!
-//! This provides a way to produce a structured log file containing information
-//! about the run of a [`Command`]. The log will contain the command line, the
-//! start time, and a log of all [`Event`]s and their time offset from when the
-//! process was spawned.
-//!
-//! It can also log errors arising from IO with the child process, and errors
-//! from the parent process.
+//! Code to generate a structured log.
 
 use crate::command::{Child, Command, Event};
+use crate::job_logger::Kind;
 use log::info;
 use std::cell::RefCell;
 use std::ffi::OsString;
@@ -285,7 +278,7 @@ impl JobLogger {
         buffer.push(b' ');
         self.write_all(&buffer)?;
 
-        kind.write_value(self, value, indent)
+        self.write_value(kind, value, indent)
     }
 
     /// Private: write a metadata line to the top of the log file.
@@ -315,7 +308,9 @@ impl JobLogger {
         buffer.extend_from_slice(b": ");
         self.write_all(&buffer)?;
 
-        self.write_value(value, 4)?;
+        let mut output: Vec<u8> = Vec::with_capacity(value.len());
+        let _ = escape_into(value, 4, &mut output); // Don’t care about newline.
+        self.write_all(&output)?;
 
         Ok(())
     }
@@ -329,15 +324,36 @@ impl JobLogger {
     /// This will return an error if it can’t write to the log.
     fn write_value(
         &mut self,
+        kind: Kind,
         input: &[u8],
         indent: usize,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<()> {
         let mut output: Vec<u8> = Vec::with_capacity(input.len());
         let newline = escape_into(input, indent, &mut output);
 
-        self.write_all(&output)?;
+        let mut color = termcolor::ColorSpec::new();
+        color.set_intense(true);
 
-        Ok(newline)
+        if kind.is_any_error() {
+            color.set_fg(Some(termcolor::Color::Red));
+        } else {
+            color.set_fg(Some(termcolor::Color::White));
+        }
+
+        self.set_color(&color)?;
+        self.write_all(&output)?;
+        self.reset_color()?;
+
+        if kind.is_output() {
+            // We only care about trailing newlines for output records.
+            self.state = if newline {
+                State::Newline
+            } else {
+                State::Continuation
+            };
+        }
+
+        Ok(())
     }
 
     /// Private: write raw data to everything in `self.destinations`.
@@ -639,87 +655,6 @@ enum State {
 
     /// Writing event records. The next record will continue an existing line.
     Continuation,
-}
-
-/// The kind of record to be written. This is more low-level than [`Event`], and
-/// can represent an error in cron-wrapper that could not be represented by
-/// [`Event::Error`].
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Kind {
-    /// Output on the child process’s stdout.
-    Stdout,
-
-    /// Output on the child process’s stderr.
-    Stderr,
-
-    /// Child process exited.
-    Exit,
-
-    /// Error reading or polling the child process.
-    Error,
-
-    /// Error in cron-wrapper.
-    WrapperError,
-}
-
-impl Kind {
-    /// Serialize to a byte string.
-    const fn as_bytes(self) -> &'static [u8] {
-        match self {
-            Self::Stdout => b"out",
-            Self::Stderr => b"err",
-            Self::Exit => b"exit",
-            Self::Error => b"ERROR",
-            Self::WrapperError => b"WRAPPER-ERROR",
-        }
-    }
-
-    /// Is this an output (stdout or stderr)?
-    const fn is_output(self) -> bool {
-        matches!(self, Self::Stdout | Self::Stderr)
-    }
-
-    /// Is this an error (stderr, error, wrapper-error)?
-    const fn is_any_error(self) -> bool {
-        matches!(self, Self::Stderr | Self::Error | Self::WrapperError)
-    }
-
-    /// Write value.
-    ///
-    /// # Errors
-    ///
-    /// This will return an error if it can’t write to the log, or if it can’t
-    /// set or reset the text color on a destination that should support it.
-    fn write_value(
-        self,
-        logger: &mut JobLogger,
-        value: &[u8],
-        indent: usize,
-    ) -> anyhow::Result<()> {
-        let mut color = termcolor::ColorSpec::new();
-        color.set_intense(true);
-
-        if self.is_any_error() {
-            color.set_fg(Some(termcolor::Color::Red));
-        } else {
-            color.set_fg(Some(termcolor::Color::White));
-        }
-
-        logger.set_color(&color)?;
-        let newline = logger.write_value(value, indent)?;
-        logger.reset_color()?;
-
-        if self.is_output() {
-            // We only care about trailing newlines for output records.
-            logger.state = if newline {
-                State::Newline
-            } else {
-                State::Continuation
-            };
-        }
-
-        Ok(())
-    }
 }
 
 #[cfg(test)]
