@@ -126,7 +126,9 @@ fn start(params: &Params, job_logger: &mut JobLogger) -> anyhow::Result<i32> {
                 // again as a “wrapper” error.
                 if params.normal_output_enabled() {
                     eprintln!("Error: {error:#}");
-                } else {
+                } else if !params.log_stdout {
+                    // If log_stdout were enabled it would have already printed
+                    // the error to stdout.
                     error!("{error:#}");
                 }
 
