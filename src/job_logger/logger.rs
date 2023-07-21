@@ -33,9 +33,9 @@ const FILE_NAME_DATE_FORMAT: iso8601::EncodedConfig = iso8601::Config::DEFAULT
 /// +0.000 out foo bar hey
 ///            next line whatever
 /// +0.010 err NOTICE bar hey
-/// +0.100 out mixed
-/// +0.200 \ out .
-/// +0.340 \ ERROR IdleTimeout { timeout: Expired { requested: 110ms, actual: 109.566826ms } }
+/// +0.100 out mixed \
+/// +0.200 out .\
+/// +0.340 ERROR IdleTimeout { timeout: Expired { requested: 110ms, actual: 109.566826ms } }
 /// ```
 #[derive(Debug)]
 pub struct JobLogger {
@@ -251,7 +251,7 @@ impl JobLogger {
 
         if self.state == State::Metadata {
             self.write_all(b"\n")?;
-            self.state = State::Newline;
+            self.state = State::Records;
         }
 
         let time = format!("{:.3}", self.elapsed());
@@ -267,10 +267,6 @@ impl JobLogger {
                 .expect("buffer too large"),
         );
         buffer.extend_from_slice(time.as_bytes());
-
-        if self.state == State::Continuation {
-            buffer.extend_from_slice(b" \\");
-        }
 
         buffer.push(b' ');
         buffer.extend_from_slice(kind.as_bytes());
@@ -307,8 +303,7 @@ impl JobLogger {
         buffer.extend_from_slice(b": ");
         self.write_all(&buffer)?;
 
-        let mut output: Vec<u8> = Vec::with_capacity(value.len());
-        let _ = escape_into(value, 4, &mut output); // Don’t care about newline.
+        let output = escape_value(value, 4, false);
         self.write_all(&output)?;
 
         Ok(())
@@ -327,8 +322,7 @@ impl JobLogger {
         input: &[u8],
         indent: usize,
     ) -> anyhow::Result<()> {
-        let mut output: Vec<u8> = Vec::with_capacity(input.len());
-        let newline = escape_into(input, indent, &mut output);
+        let output = escape_value(input, indent, kind.is_output());
 
         let mut color = termcolor::ColorSpec::new();
         color.set_intense(true);
@@ -342,15 +336,6 @@ impl JobLogger {
         self.set_color(&color)?;
         self.write_all(&output)?;
         self.reset_color()?;
-
-        if kind.is_output() {
-            // We only care about trailing newlines for output records.
-            self.state = if newline {
-                State::Newline
-            } else {
-                State::Continuation
-            };
-        }
 
         Ok(())
     }
@@ -611,32 +596,64 @@ impl WriteColor for Destination {
 
 /// Private: escape value for metadata or record in the output buffer.
 ///
-/// Always ends output with a newline. Returns true if the input ended with a
-/// newline.
-fn escape_into(input: &[u8], indent: usize, output: &mut Vec<u8>) -> bool {
+/// Always ends output with a newline; will append a backslash if there wasn’t
+/// already a trailing newline.
+fn escape_value(input: &[u8], indent: usize, expect_newline: bool) -> Vec<u8> {
+    // FIXME: maybe this should be a little larger than `input.len()`?
+    let mut output: Vec<u8> = Vec::with_capacity(input.len());
+
     if let Some((&last, inpu)) = input.split_last() {
         let indent = b" ".repeat(indent);
         for &b in inpu {
-            output.push(b);
+            escape_byte_into(b, &mut output);
             if b == b'\n' {
                 output.extend_from_slice(&indent);
             }
         }
 
-        output.push(last);
+        escape_byte_into(last, &mut output);
 
-        // FIXME? CR?
         if last == b'\n' {
-            // Ends with a newline; we don’t need to add our own.
-            return true;
+            return output;
         }
     }
 
-    // No trailing newline (input was empty or we checked the last
-    // character), so add our own newline.
+    // Input was empty, or otherwise didn’t end with a newline.
+    if expect_newline {
+        output.push(b'\\');
+    }
     output.push(b'\n');
 
-    false
+    output
+}
+
+/// Private: escape a byte in a value (metadata or event).
+///
+/// # Panics
+///
+/// This has an `unwrap()` call, but `write!` should never fail when writing to
+/// a buffer.
+#[inline]
+fn escape_byte_into(input: u8, output: &mut Vec<u8>) {
+    match input {
+        // Backspace
+        0x08 => output.extend_from_slice(b"\\b"),
+
+        // Carriage return
+        b'\r' => output.extend_from_slice(b"\\r"),
+
+        // Newline and tab pass through
+        b'\n' | b'\t' => output.push(input),
+
+        // Other control characters are hex-escaped, e.g. \0x7f for DEL
+        0..=0x1f | 0x7f => write!(output, "\\x{input:02x}").unwrap(),
+
+        // Backslash
+        b'\\' => output.extend_from_slice(b"\\\\"),
+
+        // Pass through
+        b => output.push(b),
+    }
 }
 
 /// The current state of the [`JobLogger`].
@@ -648,11 +665,8 @@ enum State {
     /// `Destination`s have all been converted to writable; writing metadata.
     Metadata,
 
-    /// Writing event records. The next record will start on a new line.
-    Newline,
-
-    /// Writing event records. The next record will continue an existing line.
-    Continuation,
+    /// Writing event records.
+    Records,
 }
 
 #[cfg(test)]
@@ -775,28 +789,55 @@ mod tests {
     }
 
     #[test]
+    fn stream_logger_escapes() {
+        let (mut logger, output) = make_buffer_logger();
+
+        check!(logger
+            .log_event(&Event::Stdout(
+                b"tab:\t backslash:\\ esc:\x1b 0:\0 CR:\r LF:\n \
+                backspace:\x08 del:\x1f done"
+            ))
+            .is_ok());
+
+        // Output should look like:
+        //
+        //     Start: 2023-05-19T22:17:04.858177000-07:00
+        //
+        //     0.001 out tab:	 backslash:\\ esc:\x1b 0:\x00 CR:\r LF:
+        //                backspace:\b del:\x1f done\
+        //
+        check_output(
+            &output,
+            "^Start: <date>T<time+>\n\
+            \n\
+            \\d\\.\\d{3} out tab:\t backslash:\\\\\\\\ esc:\\\\x1b 0:\\\\x00 CR:\\\\r LF:\n\
+            [ ]          backspace:\\\\b del:\\\\x1f done\\\\\n$",
+        );
+    }
+
+    #[test]
     fn stream_logger_continuation() {
         let (mut logger, output) = make_buffer_logger();
 
         check!(logger.log_event(&Event::Stdout(b"abc")).is_ok());
-        check!(logger.log_event(&Event::Stdout(b"def")).is_ok());
+        check!(logger.log_event(&Event::Stdout(b"def\\")).is_ok());
         check!(logger.log_event(&event_exit(0)).is_ok());
 
         // Output should look like:
         //
         //     Start: 2023-05-19T22:17:04.858177000-07:00
         //
-        //     0.000 out abc
-        //     0.000 \ out def
-        //     0.000 \ exit 0
+        //     0.000 out abc\
+        //     0.000 out def\\\
+        //     0.000 exit 0
         //
         check_output(
             &output,
             "^Start: <date>T<time+>\n\
             \n\
-            \\d\\.\\d{3} out abc\n\
-            \\d\\.\\d{3} \\\\ out def\n\
-            \\d\\.\\d{3} \\\\ exit 0\n$",
+            \\d\\.\\d{3} out abc\\\\\n\
+            \\d\\.\\d{3} out def\\\\\\\\\\\\\\\n\
+            \\d\\.\\d{3} exit 0\n$",
         );
     }
 
@@ -838,17 +879,17 @@ mod tests {
         //
         //     Start: 2023-05-19T22:17:04.858177000-07:00
         //
-        //     0.000 out abc
-        //     0.000 \ ERROR IdleTimeout { ... }
-        //     0.000 \ out def
+        //     0.000 out abc\
+        //     0.000 ERROR IdleTimeout { ... }
+        //     0.000 out def
         //
         check_output(
             &output,
             "^Start: <date>T<time+>\n\
             \n\
-            \\d\\.\\d{3} out abc\n\
-            \\d\\.\\d{3} \\\\ ERROR IdleTimeout.*?\n\
-            \\d\\.\\d{3} \\\\ out def\n$",
+            \\d\\.\\d{3} out abc\\\\\n\
+            \\d\\.\\d{3} ERROR IdleTimeout \\{.*?\\}\n\
+            \\d\\.\\d{3} out def\n$",
         );
     }
 
