@@ -8,7 +8,6 @@ use std::ffi::OsString;
 use std::fmt;
 use std::fs;
 use std::io::{self, Write};
-use std::iter;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Instant;
@@ -615,9 +614,8 @@ impl WriteColor for Destination {
 /// Always ends output with a newline. Returns true if the input ended with a
 /// newline.
 fn escape_into(input: &[u8], indent: usize, output: &mut Vec<u8>) -> bool {
-    let indent: Vec<u8> = iter::repeat(b' ').take(indent).collect();
-
     if let Some((&last, inpu)) = input.split_last() {
+        let indent = b" ".repeat(indent);
         for &b in inpu {
             output.push(b);
             if b == b'\n' {
