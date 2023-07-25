@@ -25,19 +25,19 @@ pub struct Params {
     #[clap(allow_hyphen_values = true)]
     pub args: Vec<OsString>,
 
-    /// Output if there is output on stderr
+    /// Pass through output if the child wrote to stderr
     #[clap(short = 'E', long)]
     pub on_error: bool,
 
-    /// Output if the exit code is not 0
+    /// Pass through output if the child returned a non-0 exit code
     #[clap(short = 'F', long)]
     pub on_fail: bool,
 
-    /// Always output exit code
+    /// Always print child’s exit code
     #[clap(long)]
     pub show_exit_code: bool,
 
-    /// Output exit code when it’s not 0
+    /// Print child’s exit code if it’s not 0
     #[clap(short = 'X', long)]
     pub show_fail_code: bool,
 
@@ -67,15 +67,13 @@ pub struct Params {
     #[clap(short = 's', long)]
     pub log_stdout: bool,
 
-    /// Whether or not to output in color
-    #[clap(long, default_value = "auto", value_name = "WHEN")]
-    pub color: ColorChoice,
-
-    /// Verbosity (may be repeated up to three times)
-    #[clap(short, long, action = clap::ArgAction::Count)]
-    pub verbose: u8,
-
-    /// Timeout for entire run (e.g. "1s", "1h", or "30ms")
+    /// Exit if the child runs for longer than DURATION
+    ///
+    /// DURATION may by a number representing seconds, or a string like "1s",
+    /// "2h", or "2s 50ms". It cannot be more precise than milliseconds.
+    ///
+    /// The child process will be killed with the signal set by --error-signal
+    /// (defaults to SIGTERM).
     #[clap(
         long,
         value_name = "DURATION",
@@ -84,7 +82,13 @@ pub struct Params {
     )]
     pub run_timeout: Option<Duration>,
 
-    /// Timeout for individual reads (e.g. "1s", "1h", or "30ms")
+    /// Exit if the child doesn’t output for longer than DURATION
+    ///
+    /// DURATION may by a number representing seconds, or a string like "1s",
+    /// "2h", or "2s 50ms". It cannot be more precise than milliseconds.
+    ///
+    /// The child process will be killed with the signal set by --error-signal
+    /// (defaults to SIGTERM).
     #[clap(
         long,
         value_name = "DURATION",
@@ -99,6 +103,14 @@ pub struct Params {
     /// This may be set to "none" to skip killing the child process.
     #[clap(long, default_value = "SIGTERM", value_name = "SIGNAL")]
     pub error_signal: OptionalSignal,
+
+    /// Whether or not to output in color
+    #[clap(long, default_value = "auto", value_name = "WHEN")]
+    pub color: ColorChoice,
+
+    /// Verbosity (may be repeated up to three times)
+    #[clap(short, long, action = clap::ArgAction::Count)]
+    pub verbose: u8,
 
     /// Hidden: how large a buffer to use
     #[clap(
