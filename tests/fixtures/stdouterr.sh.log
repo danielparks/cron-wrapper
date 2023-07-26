@@ -1,0 +1,15 @@
+Command: ["tests/fixtures/stdouterr.sh"]
+Start: 2023-05-29T18:21:35.146758000-07:00
+
+0.004 out 01 stdout
+0.004 out 02 stdout
+0.004 err 03 STDERR
+          04 STDERR sleep 0.1
+0.109 out 05 stdout sleep 0.1
+0.216 err 06 STDERR 
+0.216 \ out 07 stdout 
+0.216 \ err 08 STDERR
+          09 STDERR sleep 0.2 
+0.421 \ out 10 stdout sleep 0.1 
+0.530 \ err 11 STDERR
+0.531 exit 143

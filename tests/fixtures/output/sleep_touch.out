@@ -1,0 +1,4 @@
+Command: ["tests/fixtures/sleep_touch.sh"]
+Start: 2023-07-26T13:32:23.351057000-07:00
+
+0.117 exit 1

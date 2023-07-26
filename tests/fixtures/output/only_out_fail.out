@@ -1,0 +1,5 @@
+Command: ["tests/fixtures/only_out_fail.sh"]
+Start: 2023-07-26T13:32:23.254904000-07:00
+
+0.003 out out
+0.003 exit 1

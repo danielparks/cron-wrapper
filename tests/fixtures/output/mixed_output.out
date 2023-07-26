@@ -1,0 +1,8 @@
+Command: ["tests/fixtures/mixed_output.sh"]
+Start: 2023-07-26T13:32:22.710025000-07:00
+
+0.003 out 111\
+0.111 err aaa\
+0.219 out 333
+0.327 err bbb
+0.327 exit 0

@@ -1,0 +1,5 @@
+Command: ["tests/fixtures/invalid_utf8.sh"]
+Start: 2023-07-05T11:07:40.911008000-07:00
+
+0.003 out bad â(¡ bad
+0.003 exit 0
