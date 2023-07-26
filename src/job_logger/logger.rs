@@ -1,7 +1,7 @@
 //! Code to generate a structured log.
 
 use crate::command::{Child, Command, Event};
-use crate::job_logger::Kind;
+use crate::job_logger::{Kind, TrailingNewline};
 use log::info;
 use std::cell::RefCell;
 use std::ffi::OsString;
@@ -303,7 +303,7 @@ impl JobLogger {
         buffer.extend_from_slice(b": ");
         self.write_all(&buffer)?;
 
-        let output = escape_value(value, 4, false);
+        let output = escape_value(value, 4, TrailingNewline::Explicit);
         self.write_all(&output)?;
 
         Ok(())
@@ -322,7 +322,7 @@ impl JobLogger {
         input: &[u8],
         indent: usize,
     ) -> anyhow::Result<()> {
-        let output = escape_value(input, indent, kind.is_output());
+        let output = escape_value(input, indent, kind.newline_behavior());
 
         let mut color = termcolor::ColorSpec::new();
         color.set_intense(true);
@@ -596,9 +596,13 @@ impl WriteColor for Destination {
 
 /// Private: escape value for metadata or record in the output buffer.
 ///
-/// Always ends output with a newline; will append a backslash if there wasn’t
-/// already a trailing newline.
-fn escape_value(input: &[u8], indent: usize, expect_newline: bool) -> Vec<u8> {
+/// This always ends output with a newline. It will treat a trailing newline
+/// in `input` differently depending on the [`TrailingNewline`] value passed.
+fn escape_value(
+    input: &[u8],
+    indent: usize,
+    newline: TrailingNewline,
+) -> Vec<u8> {
     // FIXME: maybe this should be a little larger than `input.len()`?
     let mut output: Vec<u8> = Vec::with_capacity(input.len());
 
@@ -614,14 +618,17 @@ fn escape_value(input: &[u8], indent: usize, expect_newline: bool) -> Vec<u8> {
         escape_byte_into(last, &mut output);
 
         if last == b'\n' {
-            // FIXME: if expect_newline is false, then a trailing newline should
-            // be specially encoded.
+            if newline == TrailingNewline::Explicit {
+                output.extend_from_slice(&indent);
+                // Must end with a newline.
+                output.push(b'\n');
+            }
             return output;
         }
     }
 
     // Input was empty, or otherwise didn’t end with a newline.
-    if expect_newline {
+    if newline == TrailingNewline::Implicit {
         output.push(b'\\');
     }
     output.push(b'\n');
@@ -989,5 +996,53 @@ mod tests {
         let_assert!(Err(error) = logger.log_event(&Event::Stdout(b"abc\n")));
         let_assert!(Some(error) = error.downcast_ref::<io::Error>());
         check!(error.kind() == io::ErrorKind::AlreadyExists);
+    }
+
+    /// Helper function to make tests easier to read.
+    fn escape_value_str(
+        input: &str,
+        indent: usize,
+        newline: TrailingNewline,
+    ) -> String {
+        String::from_utf8(escape_value(input.as_bytes(), indent, newline))
+            .unwrap()
+    }
+
+    #[test]
+    fn escape_value_escapes() {
+        let nl = TrailingNewline::Explicit;
+        check!(escape_value_str("cr:\r", 4, nl) == "cr:\\r\n");
+        check!(escape_value_str("tab:\t", 4, nl) == "tab:\t\n");
+        check!(escape_value_str("backslash:\\", 4, nl) == "backslash:\\\\\n");
+        check!(
+            escape_value_str("backspace:\x0b", 4, nl) == "backspace:\\x0b\n"
+        );
+        check!(escape_value_str("a\r\t\\\x0bb", 4, nl) == "a\\r\t\\\\\\x0bb\n");
+    }
+
+    #[test]
+    fn escape_value_newline_implicit() {
+        let nl = TrailingNewline::Implicit;
+        check!(escape_value_str("abc", 4, nl) == "abc\\\n");
+        check!(escape_value_str("abc\n", 4, nl) == "abc\n");
+        check!(escape_value_str("abc\ndef", 4, nl) == "abc\n    def\\\n");
+        check!(escape_value_str("abc\ndef", 1, nl) == "abc\n def\\\n");
+        check!(escape_value_str("", 4, nl) == "\\\n");
+        check!(escape_value_str("\n", 4, nl) == "\n");
+        check!(escape_value_str("\\", 4, nl) == "\\\\\\\n");
+        check!(escape_value_str("\\\n", 4, nl) == "\\\\\n");
+    }
+
+    #[test]
+    fn escape_value_newline_explicit() {
+        let nl = TrailingNewline::Explicit;
+        check!(escape_value_str("abc", 4, nl) == "abc\n");
+        check!(escape_value_str("abc\n", 4, nl) == "abc\n    \n");
+        check!(escape_value_str("abc\ndef", 4, nl) == "abc\n    def\n");
+        check!(escape_value_str("abc\ndef", 1, nl) == "abc\n def\n");
+        check!(escape_value_str("", 4, nl) == "\n");
+        check!(escape_value_str("\n", 4, nl) == "\n    \n");
+        check!(escape_value_str("\\", 4, nl) == "\\\\\n");
+        check!(escape_value_str("\\\n", 4, nl) == "\\\\\n    \n");
     }
 }
