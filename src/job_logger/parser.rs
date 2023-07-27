@@ -7,7 +7,7 @@ use nom::{
     bytes::complete::{is_a, is_not, tag, take_until},
     character::complete::{char, digit1},
     combinator::{
-        all_consuming, consumed, flat_map, map, map_res, opt, recognize,
+        all_consuming, consumed, flat_map, map, map_res, opt, recognize, value,
     },
     error::ParseError,
     multi::{count, many0, separated_list1},
@@ -92,11 +92,11 @@ where
     let kind_parser = delimited(
         is_a(" "),
         alt((
-            map(tag("out"), |_| Kind::Stdout),
-            map(tag("err"), |_| Kind::Stderr),
-            map(tag("exit"), |_| Kind::Exit),
-            map(tag("ERROR"), |_| Kind::Error),
-            map(tag("WRAPPER-ERROR"), |_| Kind::WrapperError),
+            value(Kind::Stdout, tag("out")),
+            value(Kind::Stderr, tag("err")),
+            value(Kind::Exit, tag("exit")),
+            value(Kind::Error, tag("ERROR")),
+            value(Kind::WrapperError, tag("WRAPPER-ERROR")),
         )),
         char(' '),
     );
