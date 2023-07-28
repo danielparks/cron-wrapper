@@ -7,6 +7,9 @@
 //!
 //! It can also log errors arising from IO with the child process, and errors
 //! from the parent process.
+//!
+//! [`Command`]: crate::command::Command
+//! [`Event`]: crate::command::Event
 
 mod logger;
 pub mod parser;
@@ -15,6 +18,9 @@ pub use logger::*;
 /// The kind of record to be written. This is more low-level than [`Event`], and
 /// can represent an error in cron-wrapper that could not be represented by
 /// [`Event::Error`].
+///
+/// [`Event`]: crate::command::Event
+/// [`Event::Error`]: crate::command::Event::Error
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
     /// Output on the child process’s stdout.
