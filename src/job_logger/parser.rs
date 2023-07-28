@@ -320,54 +320,59 @@ mod tests {
     use super::*;
     use assert2::{check, let_assert};
 
+    /// Maximum number of nanoseconds in a Duration, i.e. 1s - 1ns.
+    const MAX_NANOS: &str = "999999999";
+
+    /// Wrap [`bstr_to_duration()`] to simplify tests.
+    fn str_to_duration<'a, S: Into<Option<&'a str>>>(
+        seconds: &str,
+        fractional_seconds: S,
+    ) -> anyhow::Result<Duration> {
+        bstr_to_duration((
+            seconds.as_bytes(),
+            fractional_seconds.into().map(str::as_bytes),
+        ))
+    }
+
+    /// Convenience function to make a [`Duration`] from seconds.
+    const fn seconds(seconds: u64) -> Duration {
+        Duration::from_secs(seconds)
+    }
+
+    /// Convenience function to make a [`Duration`] from milliseconds.
+    const fn millis(milliseconds: u64) -> Duration {
+        Duration::from_millis(milliseconds)
+    }
+
+    /// Convenience function to make a [`Duration`] from nanoseconds.
+    const fn nanos(nanoseconds: u64) -> Duration {
+        Duration::from_nanos(nanoseconds)
+    }
+
     #[test]
-    fn bstr_to_duration_normal() {
-        // Zero and 100ms
-        check!(
-            Duration::ZERO
-                == bstr_to_duration((&b"0"[..], Some(&b"000000"[..]))).unwrap()
-        );
-        check!(
-            Duration::from_millis(100)
-                == bstr_to_duration((&b"0"[..], Some(&b"100"[..]))).unwrap()
-        );
+    fn bstr_to_duration_zero() {
+        check!(Duration::ZERO == str_to_duration("0", "000000").unwrap());
+        check!(Duration::ZERO == str_to_duration("0", None).unwrap());
     }
 
     #[test]
     fn bstr_to_duration_milliseconds() {
-        // Down to millisecond precision
-        check!(
-            Duration::from_millis(33_000)
-                == bstr_to_duration((&b"33"[..], None)).unwrap()
-        );
-        check!(
-            Duration::from_millis(33_900)
-                == bstr_to_duration((&b"33"[..], Some(&b"9"[..]))).unwrap()
-        );
-        check!(
-            Duration::from_millis(33_090)
-                == bstr_to_duration((&b"33"[..], Some(&b"09"[..]))).unwrap()
-        );
-        check!(
-            Duration::from_millis(33_009)
-                == bstr_to_duration((&b"33"[..], Some(&b"009"[..]))).unwrap()
-        );
+        check!(seconds(33) == str_to_duration("33", None).unwrap());
+        check!(millis(33_900) == str_to_duration("33", "9").unwrap());
+        check!(millis(33_090) == str_to_duration("33", "09").unwrap());
+        check!(millis(33_009) == str_to_duration("33", "009").unwrap());
     }
 
     #[test]
     fn bstr_to_duration_nanoseconds() {
-        check!(
-            Duration::from_nanos(1_002_003)
-                == bstr_to_duration((&b"0"[..], Some(&b"001002003"[..])))
-                    .unwrap()
-        );
+        check!(nanos(1_002_003) == str_to_duration("0", "001002003").unwrap());
+        check!(nanos(999_999_999) == str_to_duration("0", MAX_NANOS).unwrap());
 
-        let_assert!(
-            Err(_) = bstr_to_duration((&b"0"[..], Some(&b"0010020039"[..])))
-        );
+        let_assert!(Err(_) = str_to_duration("0", "0010020039"));
+        let_assert!(Err(_) = str_to_duration("0", "0010020030"));
     }
 
-    /// Helper function to make tests easier to read.
+    /// Wrap [`unescape_value()`] to simplify tests.
     fn unescape_value_str(input: &str, newline: TrailingNewline) -> String {
         String::from_utf8(unescape_value(input.as_bytes(), newline)).unwrap()
     }
