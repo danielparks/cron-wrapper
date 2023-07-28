@@ -287,14 +287,17 @@ impl Command {
     /// Set the command arguments
     ///
     /// ```rust
-    /// use assert2::let_assert;
+    /// use assert2::{assert, let_assert};
     /// use cron_wrapper::command::{Command, Event};
     ///
     /// let mut child = Command::new("/bin/echo", [])
     ///     .args(["hello", "world"])
     ///     .spawn()
     ///     .unwrap();
-    /// let_assert!(Some(Event::Stdout(b"hello world\n")) = child.next_event());
+    ///
+    /// // Depending on timing, the first event may only get part of the output.
+    /// let_assert!(Some(Event::Stdout(bytes)) = child.next_event());
+    /// assert!(b"hello world\n".starts_with(bytes));
     /// ```
     pub fn args<S, I>(&mut self, args: I) -> &mut Self
     where
@@ -329,6 +332,7 @@ impl Command {
     ///     .idle_timeout(Duration::from_millis(1))
     ///     .spawn()
     ///     .unwrap();
+    ///
     /// let_assert!(
     ///     Some(Event::Error(Error::IdleTimeout { .. })) =
     ///         child.next_event()
@@ -367,6 +371,7 @@ impl Command {
     ///     .run_timeout(Duration::from_millis(1))
     ///     .spawn()
     ///     .unwrap();
+    ///
     /// let_assert!(
     ///     Some(Event::Error(Error::RunTimeout { .. })) =
     ///         child.next_event()
@@ -395,6 +400,7 @@ impl Command {
     ///     .buffer_size(1)
     ///     .spawn()
     ///     .unwrap();
+    ///
     /// let_assert!(Some(Event::Stdout(b"a")) = child.next_event());
     /// let_assert!(Some(Event::Stdout(b"b")) = child.next_event());
     /// let_assert!(Some(Event::Stdout(b"\n")) = child.next_event());
@@ -621,9 +627,21 @@ impl Child {
     /// use cron_wrapper::command::{Command, Event};
     ///
     /// let mut child = Command::new("/bin/echo", ["hello"]).spawn().unwrap();
-    /// let_assert!(Some(Event::Stdout(b"hello\n")) = child.next_event());
-    /// let_assert!(Some(Event::Exit(status)) = child.next_event());
-    /// check!(status.success());
+    ///
+    /// // Depending on timing, the first event might not get the entire output.
+    /// let mut buffer = Vec::new();
+    /// while let Some(event) = child.next_event() {
+    ///     match event {
+    ///         Event::Stdout(bytes) => buffer.extend_from_slice(bytes),
+    ///         Event::Exit(status) => {
+    ///             check!(status.success());
+    ///             break;
+    ///         }
+    ///         other => panic!("Unexpected event: {other:?}"),
+    ///     }
+    /// }
+    /// check!(b"hello\n" == &buffer[..]);
+    ///
     /// let_assert!(None = child.next_event());
     /// ```
     pub fn next_event(&mut self) -> Option<Event<'_>> {
