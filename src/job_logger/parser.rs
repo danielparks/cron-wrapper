@@ -1,7 +1,7 @@
 //! Parse a structured log.
 
 use crate::job_logger::{Kind, TrailingNewline};
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use nom::{
     branch::alt,
     bytes::complete::{is_a, is_not, tag, take_until},
@@ -221,6 +221,14 @@ fn unescape_value(input: &[u8], newline: TrailingNewline) -> Vec<u8> {
 ///
 /// The input string may have precision down to nanoseconds, i.e. 9 digits after
 /// the decimal point. More digits will cause an error.
+///
+/// # Parser errors
+///
+/// The parser returns an error if:
+///
+///  * The seconds are are more than [`u64::MAX`].
+///  * The fractional seconds have more than nanosecond precision, i.e. there
+///    are more than 9 digits.
 pub fn seconds_parser<'a, E>(
 ) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Duration, E>
 where
@@ -240,24 +248,28 @@ where
 ///
 /// # Errors
 ///
-/// Returns an error if the fractional seconds have more than nanosecond
-/// precision, i.e. there are more than 9 digits.
+/// Returns an error if:
+///
+///  * The seconds are are more than [`u64::MAX`].
+///  * The fractional seconds have more than nanosecond precision, i.e. there
+///    are more than 9 digits.
 ///
 /// # Panics
 ///
-/// Panics if the number being parsed wouldn’t fit in a u64, or if any of the
-/// input bytes aren’t ASCII digits.
+/// Panics if any of the input bytes aren’t ASCII digits.
 #[allow(clippy::items_after_statements)]
 fn bstr_to_duration(
     (seconds, fractional_seconds): (&[u8], Option<&[u8]>),
 ) -> anyhow::Result<Duration> {
-    // FIXME: This should return an error if the full seconds number would
-    // overflow, rather than panicking.
-
     /// Allowable number of digits for decimal seconds.
     const PRECISION: u32 = 9;
 
-    let seconds = bstr_to_u64(seconds);
+    let seconds = bstr_to_u64(seconds).ok_or_else(|| {
+        anyhow!(
+            "Found time offset greater than maximum supported seconds: {}",
+            u64::MAX
+        )
+    })?;
 
     // If there are decimal seconds, convert them to nanoseconds.
     let nanoseconds = if let Some(fractional_seconds) = fractional_seconds {
@@ -271,12 +283,11 @@ fn bstr_to_duration(
             bail!("Found time offset with greater than nanosecond precision.");
         };
 
-        let precision = 10u64
-            .checked_pow(precision)
-            .expect("10^precision overflows");
+        let precision = 10u64.checked_pow(precision).unwrap();
         let nanoseconds = bstr_to_u64(fractional_seconds)
+            .unwrap()
             .checked_mul(precision)
-            .expect("overflow increasing precision of decimal seconds");
+            .unwrap();
 
         u32::try_from(nanoseconds).unwrap()
     } else {
@@ -288,18 +299,18 @@ fn bstr_to_duration(
 
 /// Convert a byte string of ASCII digits to a u64.
 ///
+/// # Errors (`None`)
+///
+/// Returns `None` if the number is too large to fit in a `u64`.
+///
 /// # Panics
 ///
-/// Panics if the number being parsed wouldn’t fit in a u64, or if any of
-/// the input bytes aren’t ASCII digits.
-fn bstr_to_u64(input: &[u8]) -> u64 {
-    input.iter().fold(0u64, |sum, digit| {
+/// Panics if any of the input bytes aren’t ASCII digits.
+fn bstr_to_u64(input: &[u8]) -> Option<u64> {
+    input.iter().try_fold(0u64, |sum, digit| {
         let digit = digit.checked_sub(b'0').expect("input not an ASCII digit");
         assert!(digit < 10, "input not an ASCII digit");
-        sum.checked_mul(10)
-            .expect("number too large")
-            .checked_add(digit.into())
-            .expect("number too large")
+        sum.checked_mul(10)?.checked_add(digit.into())
     })
 }
 
@@ -340,6 +351,12 @@ mod tests {
         Duration::from_nanos(nanoseconds)
     }
 
+    /// Convenience function to get `(u64::MAX + 1)to_string()`.
+    #[allow(clippy::arithmetic_side_effects)]
+    fn overflow_seconds() -> String {
+        (u128::from(u64::MAX) + 1).to_string()
+    }
+
     #[test]
     fn bstr_to_duration_zero() {
         check!(Duration::ZERO == str_to_duration("0", "000000").unwrap());
@@ -351,6 +368,8 @@ mod tests {
         let max_secs = u64::MAX.to_string();
         check!(seconds(u64::MAX) == str_to_duration(&max_secs, None).unwrap());
         check!(Duration::MAX == str_to_duration(&max_secs, MAX_NANOS).unwrap());
+
+        let_assert!(Err(_) = str_to_duration(&overflow_seconds(), None));
     }
 
     #[test]
@@ -368,6 +387,14 @@ mod tests {
 
         let_assert!(Err(_) = str_to_duration("0", "0010020039"));
         let_assert!(Err(_) = str_to_duration("0", "0010020030"));
+    }
+
+    #[test]
+    fn bstr_to_u64_extremes() {
+        check!(Some(0u64) == bstr_to_u64(&b""[..]));
+        check!(Some(0u64) == bstr_to_u64(&b"0"[..]));
+        check!(Some(u64::MAX) == bstr_to_u64(u64::MAX.to_string().as_bytes()));
+        check!(None == bstr_to_u64(overflow_seconds().as_bytes()));
     }
 
     /// Wrap [`unescape_value()`] to simplify tests.
