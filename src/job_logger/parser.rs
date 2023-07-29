@@ -1,7 +1,6 @@
 //! Parse a structured log.
 
 use crate::job_logger::{Kind, TrailingNewline};
-use anyhow::{anyhow, bail};
 use nom::{
     branch::alt,
     bytes::complete::{is_a, is_not, tag, take_until},
@@ -16,6 +15,7 @@ use nom::{
 };
 use std::option::Option;
 use std::time::Duration;
+use thiserror::Error;
 
 /// A record of an event or wrapper error.
 #[derive(Clone, Debug)]
@@ -28,6 +28,18 @@ pub struct Record {
 
     /// The value of the record.
     pub value: Vec<u8>,
+}
+
+/// Special errors raised by this parser.
+#[derive(Debug, Error)]
+pub enum Error {
+    /// Time offset was found to have too many digits past the decimal point.
+    #[error("Found time offset with smaller than nanosecond precision")]
+    SubnanosecondPrecision,
+
+    /// Time offset had > u64::MAX seconds.
+    #[error("Found time offset exceeding maximum seconds ({})", u64::MAX)]
+    TooManySeconds,
 }
 
 /// Parse a complete structured log as a big byte string.
@@ -71,8 +83,7 @@ pub fn parse_log(
 pub fn metadata_section_parser<'a, E>(
 ) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Vec<(&[u8], Vec<u8>)>, E>
 where
-    E: ParseError<&'a [u8]>
-        + nom::error::FromExternalError<&'a [u8], anyhow::Error>,
+    E: ParseError<&'a [u8]> + nom::error::FromExternalError<&'a [u8], Error>,
 {
     many0(separated_pair(
         is_not("\n\r \t:#"),
@@ -86,8 +97,7 @@ where
 pub fn record_parser<'a, E>(
 ) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Record, E>
 where
-    E: ParseError<&'a [u8]>
-        + nom::error::FromExternalError<&'a [u8], anyhow::Error>,
+    E: ParseError<&'a [u8]> + nom::error::FromExternalError<&'a [u8], Error>,
 {
     let kind_parser = delimited(
         is_a(" "),
@@ -126,8 +136,7 @@ pub fn value_parser<'a, E>(
     newline: TrailingNewline,
 ) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Vec<u8>, E>
 where
-    E: ParseError<&'a [u8]>
-        + nom::error::FromExternalError<&'a [u8], anyhow::Error>,
+    E: ParseError<&'a [u8]> + nom::error::FromExternalError<&'a [u8], Error>,
 {
     map(
         separated_list1(
@@ -232,8 +241,7 @@ fn unescape_value(input: &[u8], newline: TrailingNewline) -> Vec<u8> {
 pub fn seconds_parser<'a, E>(
 ) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Duration, E>
 where
-    E: ParseError<&'a [u8]>
-        + nom::error::FromExternalError<&'a [u8], anyhow::Error>,
+    E: ParseError<&'a [u8]> + nom::error::FromExternalError<&'a [u8], Error>,
 {
     map_res(
         pair(digit1, opt(preceded(tag("."), digit1))),
@@ -260,28 +268,22 @@ where
 #[allow(clippy::items_after_statements)]
 fn bstr_to_duration(
     (seconds, fractional_seconds): (&[u8], Option<&[u8]>),
-) -> anyhow::Result<Duration> {
+) -> Result<Duration, Error> {
     /// Allowable number of digits for decimal seconds.
     const PRECISION: u32 = 9;
 
-    let seconds = bstr_to_u64(seconds).ok_or_else(|| {
-        anyhow!(
-            "Found time offset greater than maximum supported seconds: {}",
-            u64::MAX
-        )
-    })?;
+    let seconds = bstr_to_u64(seconds).ok_or(Error::TooManySeconds)?;
 
     // If there are decimal seconds, convert them to nanoseconds.
     let nanoseconds = if let Some(fractional_seconds) = fractional_seconds {
         // Get length of the decimal seconds string as u32.
-        let Ok(fraction_len) = u32::try_from(fractional_seconds.len()) else {
-            bail!("Found time offset with greater than nanosecond precision.");
-        };
+        let fraction_len = u32::try_from(fractional_seconds.len())
+            .map_err(|_| Error::SubnanosecondPrecision)?;
 
         // Figure out precision of provided decimal seconds.
-        let Some(precision) = PRECISION.checked_sub(fraction_len) else {
-            bail!("Found time offset with greater than nanosecond precision.");
-        };
+        let precision = PRECISION
+            .checked_sub(fraction_len)
+            .ok_or(Error::SubnanosecondPrecision)?;
 
         let precision = 10u64.checked_pow(precision).unwrap();
         let nanoseconds = bstr_to_u64(fractional_seconds)
@@ -329,7 +331,7 @@ mod tests {
     fn str_to_duration<'a, S: Into<Option<&'a str>>>(
         seconds: &str,
         fractional_seconds: S,
-    ) -> anyhow::Result<Duration> {
+    ) -> Result<Duration, Error> {
         bstr_to_duration((
             seconds.as_bytes(),
             fractional_seconds.into().map(str::as_bytes),
@@ -369,7 +371,10 @@ mod tests {
         check!(seconds(u64::MAX) == str_to_duration(&max_secs, None).unwrap());
         check!(Duration::MAX == str_to_duration(&max_secs, MAX_NANOS).unwrap());
 
-        let_assert!(Err(_) = str_to_duration(&overflow_seconds(), None));
+        let_assert!(
+            Err(Error::TooManySeconds) =
+                str_to_duration(&overflow_seconds(), None)
+        );
     }
 
     #[test]
@@ -385,8 +390,14 @@ mod tests {
         check!(nanos(1_002_003) == str_to_duration("0", "001002003").unwrap());
         check!(nanos(999_999_999) == str_to_duration("0", MAX_NANOS).unwrap());
 
-        let_assert!(Err(_) = str_to_duration("0", "0010020039"));
-        let_assert!(Err(_) = str_to_duration("0", "0010020030"));
+        let_assert!(
+            Err(Error::SubnanosecondPrecision) =
+                str_to_duration("0", "0010020039")
+        );
+        let_assert!(
+            Err(Error::SubnanosecondPrecision) =
+                str_to_duration("0", "0010020030")
+        );
     }
 
     #[test]
