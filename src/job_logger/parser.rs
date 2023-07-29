@@ -233,11 +233,10 @@ where
     )
 }
 
-/// Take a pair of byte strings `(seconds, fractional_seconds)` and calculate
-/// what that is in nanoseconds.
+/// Convert byte strings `(seconds, fractional_seconds)` to [`Duration`].
 ///
 /// `fractional_seconds` is the byte string from immediately after the period,
-/// so it could have any precision.
+/// so it could have any precision up to nanosecond.
 ///
 /// # Errors
 ///
@@ -257,19 +256,12 @@ fn bstr_to_duration(
 
     /// Allowable number of digits for decimal seconds.
     const PRECISION: u32 = 9;
-    /// 10^PRECISION. Would use `checked_pow()`, but `expect()` is not `const`.
-    const PRECISION_POW: (u64, bool) = 10u64.overflowing_pow(PRECISION);
-    assert!(!PRECISION_POW.1, "10^PRECISION overflows");
-    /// 10^PRECISION, i.e. the reciprocal of the smallest value expressible.
-    const RECIP_PRECISION: u64 = PRECISION_POW.0;
 
-    let mut offset = bstr_to_u64(seconds)
-        .checked_mul(RECIP_PRECISION)
-        .expect("seconds overflow number parser");
+    let seconds = bstr_to_u64(seconds);
 
     // If there are decimal seconds, convert them to nanoseconds.
-    if let Some(fractional_seconds) = fractional_seconds {
-        // Get length of decimal seconds as u32.
+    let nanoseconds = if let Some(fractional_seconds) = fractional_seconds {
+        // Get length of the decimal seconds string as u32.
         let Ok(fraction_len) = u32::try_from(fractional_seconds.len()) else {
             bail!("Found time offset with greater than nanosecond precision.");
         };
@@ -282,17 +274,16 @@ fn bstr_to_duration(
         let precision = 10u64
             .checked_pow(precision)
             .expect("10^precision overflows");
+        let nanoseconds = bstr_to_u64(fractional_seconds)
+            .checked_mul(precision)
+            .expect("overflow increasing precision of decimal seconds");
 
-        offset = offset
-            .checked_add(
-                bstr_to_u64(fractional_seconds)
-                    .checked_mul(precision)
-                    .expect("overflow increasing precision of decimal seconds"),
-            )
-            .expect("overflow adding decimal seconds to seconds");
-    }
+        u32::try_from(nanoseconds).unwrap()
+    } else {
+        0u32
+    };
 
-    Ok(Duration::from_nanos(offset))
+    Ok(Duration::new(seconds, nanoseconds))
 }
 
 /// Convert a byte string of ASCII digits to a u64.
@@ -353,6 +344,13 @@ mod tests {
     fn bstr_to_duration_zero() {
         check!(Duration::ZERO == str_to_duration("0", "000000").unwrap());
         check!(Duration::ZERO == str_to_duration("0", None).unwrap());
+    }
+
+    #[test]
+    fn bstr_to_duration_max() {
+        let max_secs = u64::MAX.to_string();
+        check!(seconds(u64::MAX) == str_to_duration(&max_secs, None).unwrap());
+        check!(Duration::MAX == str_to_duration(&max_secs, MAX_NANOS).unwrap());
     }
 
     #[test]
