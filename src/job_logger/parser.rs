@@ -18,7 +18,7 @@ use std::time::Duration;
 use thiserror::Error;
 
 /// A record of an event or wrapper error.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Record {
     /// Time elapsed between start of job and recording the record.
     pub time_offset: Duration,
@@ -94,6 +94,8 @@ where
 }
 
 /// Generate a parser for an event record in a structured log.
+///
+/// Input is something like `b"1.123 out value\n"`.
 pub fn record_parser<'a, E>(
 ) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Record, E>
 where
@@ -351,6 +353,113 @@ mod tests {
     /// Convenience function to make a [`Duration`] from nanoseconds.
     const fn nanos(nanoseconds: u64) -> Duration {
         Duration::from_nanos(nanoseconds)
+    }
+
+    type NomError<'a> = nom::Err<nom::error::Error<&'a [u8]>>;
+
+    /// Parse a string using `record_parser()`.
+    fn parse_record_str(s: &str) -> Result<(&[u8], Record), NomError> {
+        record_parser()(s.as_bytes())
+    }
+
+    /// Generate a `Result<..>` that might be produced by `parse_record_str()`
+    /// for comparison.
+    #[allow(clippy::unnecessary_wraps)]
+    fn record_result<'a>(
+        rest: &'a str,
+        time_offset: Duration,
+        kind: Kind,
+        value: &'a str,
+    ) -> Result<(&'a [u8], Record), NomError<'a>> {
+        let value = value.as_bytes().to_vec();
+        Ok((
+            rest.as_bytes(),
+            Record {
+                time_offset,
+                kind,
+                value,
+            },
+        ))
+    }
+
+    #[test]
+    fn record_parser_ok() {
+        check!(
+            parse_record_str("1.123 out value\n")
+                == record_result("", millis(1_123), Kind::Stdout, "value\n")
+        );
+        check!(
+            parse_record_str("100 err value\\\nmore")
+                == record_result("more", seconds(100), Kind::Stderr, "value")
+        );
+        check!(
+            parse_record_str("0.0 exit 10\nmore")
+                == record_result("more", seconds(0), Kind::Exit, "10")
+        );
+        check!(
+            parse_record_str("0.123456 ERROR <error>\nmore")
+                == record_result(
+                    "more",
+                    nanos(123_456_000),
+                    Kind::Error,
+                    "<error>"
+                )
+        );
+        check!(
+            parse_record_str(
+                "99.123456789 WRAPPER-ERROR <\\\\error>\n    more"
+            ) == record_result(
+                "    more",
+                nanos(99_123_456_789),
+                Kind::WrapperError,
+                "<\\error>"
+            )
+        );
+    }
+
+    #[test]
+    fn record_parser_ok_multiline() {
+        check!(
+            parse_record_str("0 out line1\n      line2\nrecord2")
+                == record_result(
+                    "record2",
+                    seconds(0),
+                    Kind::Stdout,
+                    "line1\nline2\n"
+                )
+        );
+        check!(
+            parse_record_str("0 err a\n       b\n")
+                == record_result("", seconds(0), Kind::Stderr, "a\n b\n")
+        );
+        check!(
+            parse_record_str("0 ERROR a\n        b\\\n")
+                == record_result("", seconds(0), Kind::Error, "a\nb")
+        );
+        check!(
+            parse_record_str("0 out line1\n      line2\n      line3\n")
+                == record_result(
+                    "",
+                    seconds(0),
+                    Kind::Stdout,
+                    "line1\nline2\nline3\n"
+                )
+        );
+    }
+
+    #[test]
+    fn record_parser_err() {
+        check!(parse_record_str(".123 out value\n").is_err());
+        check!(parse_record_str("0.1234567890 out value\n").is_err());
+        check!(
+            // u64::MAX =     18446744073709551615
+            parse_record_str("99999999999999999999.0 out value\n").is_err()
+        );
+        check!(parse_record_str("1.1 bad value\n").is_err());
+        check!(parse_record_str("1.1 out\n").is_err());
+        check!(parse_record_str("1.1 out value").is_err());
+        check!(parse_record_str("").is_err());
+        check!(parse_record_str("abc").is_err());
     }
 
     /// Convenience function to get `(u64::MAX + 1)to_string()`.
