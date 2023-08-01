@@ -63,7 +63,7 @@ pub fn parse_log(
     nom::Err<nom::error::Error<&[u8]>>,
 > {
     let mut parser = all_consuming(pair(
-        metadata_section_parser(),
+        many0(metadata_line_parser()),
         map(
             opt(preceded(tag("\n"), many0(record_parser()))),
             Option::unwrap_or_default,
@@ -79,18 +79,18 @@ pub fn parse_log(
     Ok((metadata, records))
 }
 
-/// Generate a parser for the metadata section of a structured log.
-pub fn metadata_section_parser<'a, E>(
-) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Vec<(&[u8], Vec<u8>)>, E>
+/// Generate a parser for a metadata line of a structured log.
+pub fn metadata_line_parser<'a, E>(
+) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], (&[u8], Vec<u8>), E>
 where
     E: ParseError<&'a [u8]> + nom::error::FromExternalError<&'a [u8], Error>,
 {
-    many0(separated_pair(
+    separated_pair(
         is_not("\n\r \t:#"),
         tag(": "),
         // The indent for metadata is always 4 characters.
         value_parser(4, TrailingNewline::Explicit),
-    ))
+    )
 }
 
 /// Generate a parser for an event record in a structured log.
