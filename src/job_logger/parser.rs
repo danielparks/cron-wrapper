@@ -462,6 +462,58 @@ mod tests {
         check!(parse_record_str("abc").is_err());
     }
 
+    /// Parse a string using `metadata_line_parser()`.
+    fn parse_metadata_str(s: &str) -> Result<(&str, (&str, String)), NomError> {
+        let (rest, (key, value)) = metadata_line_parser()(s.as_bytes())?;
+        Ok((
+            std::str::from_utf8(rest).unwrap(),
+            (
+                std::str::from_utf8(key).unwrap(),
+                String::from_utf8(value).unwrap(),
+            ),
+        ))
+    }
+
+    #[test]
+    fn metadata_line_parser_ok() {
+        let_assert!(Ok(("", ("key", v))) = parse_metadata_str("key: value\n"));
+        check!(v == "value");
+        let_assert!(Ok(("", ("key", v))) = parse_metadata_str("key:  v\n"));
+        check!(v == " v");
+        let_assert!(Ok(("", ("key", v))) = parse_metadata_str("key: b\\b\n"));
+        check!(v == "b\x08");
+        let_assert!(Ok(("", ("key", v))) = parse_metadata_str("key: \n"));
+        check!(v == "");
+    }
+
+    #[test]
+    fn metadata_line_parser_ok_multiline() {
+        let_assert!(
+            Ok(("   2\n", ("k", v))) = parse_metadata_str("k: v\n   2\n")
+        );
+        check!(v == "v");
+        let_assert!(Ok(("", ("k", v))) = parse_metadata_str("k: v\n    2\n"));
+        check!(v == "v\n2");
+        let_assert!(Ok(("", ("k", v))) = parse_metadata_str("k: v\n     2\n"));
+        check!(v == "v\n 2");
+        let_assert!(
+            Ok(("", ("k", v))) = parse_metadata_str("k: v\n    2\n    3\n")
+        );
+        check!(v == "v\n2\n3");
+        let_assert!(Ok(("", ("k", v))) = parse_metadata_str("k: v\n    \n"));
+        check!(v == "v\n");
+    }
+
+    #[test]
+    fn metadata_line_parser_err() {
+        check!(parse_metadata_str("key value\n").is_err());
+        check!(parse_metadata_str("a b: value\n").is_err());
+        check!(parse_metadata_str("#key: value\n").is_err());
+        check!(parse_metadata_str("\nkey: value\n").is_err());
+        check!(parse_metadata_str(": value\n").is_err());
+        check!(parse_metadata_str("key: value").is_err());
+    }
+
     /// Convenience function to get `(u64::MAX + 1)to_string()`.
     #[allow(clippy::arithmetic_side_effects)]
     fn overflow_seconds() -> String {
