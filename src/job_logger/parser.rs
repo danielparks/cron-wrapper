@@ -18,7 +18,7 @@ use std::time::Duration;
 use thiserror::Error;
 
 /// A record of an event or wrapper error.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Record {
     /// Time elapsed between start of job and recording the record.
     pub time_offset: Duration,
@@ -63,7 +63,7 @@ pub fn parse_log(
     nom::Err<nom::error::Error<&[u8]>>,
 > {
     let mut parser = all_consuming(pair(
-        metadata_section_parser(),
+        many0(metadata_line_parser()),
         map(
             opt(preceded(tag("\n"), many0(record_parser()))),
             Option::unwrap_or_default,
@@ -79,21 +79,23 @@ pub fn parse_log(
     Ok((metadata, records))
 }
 
-/// Generate a parser for the metadata section of a structured log.
-pub fn metadata_section_parser<'a, E>(
-) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Vec<(&[u8], Vec<u8>)>, E>
+/// Generate a parser for a metadata line of a structured log.
+pub fn metadata_line_parser<'a, E>(
+) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], (&[u8], Vec<u8>), E>
 where
     E: ParseError<&'a [u8]> + nom::error::FromExternalError<&'a [u8], Error>,
 {
-    many0(separated_pair(
+    separated_pair(
         is_not("\n\r \t:#"),
         tag(": "),
         // The indent for metadata is always 4 characters.
         value_parser(4, TrailingNewline::Explicit),
-    ))
+    )
 }
 
 /// Generate a parser for an event record in a structured log.
+///
+/// Input is something like `b"1.123 out value\n"`.
 pub fn record_parser<'a, E>(
 ) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Record, E>
 where
@@ -351,6 +353,165 @@ mod tests {
     /// Convenience function to make a [`Duration`] from nanoseconds.
     const fn nanos(nanoseconds: u64) -> Duration {
         Duration::from_nanos(nanoseconds)
+    }
+
+    type NomError<'a> = nom::Err<nom::error::Error<&'a [u8]>>;
+
+    /// Parse a string using `record_parser()`.
+    fn parse_record_str(s: &str) -> Result<(&[u8], Record), NomError> {
+        record_parser()(s.as_bytes())
+    }
+
+    /// Generate a `Result<..>` that might be produced by `parse_record_str()`
+    /// for comparison.
+    #[allow(clippy::unnecessary_wraps)]
+    fn record_result<'a>(
+        rest: &'a str,
+        time_offset: Duration,
+        kind: Kind,
+        value: &'a str,
+    ) -> Result<(&'a [u8], Record), NomError<'a>> {
+        let value = value.as_bytes().to_vec();
+        Ok((
+            rest.as_bytes(),
+            Record {
+                time_offset,
+                kind,
+                value,
+            },
+        ))
+    }
+
+    #[test]
+    fn record_parser_ok() {
+        check!(
+            parse_record_str("1.123 out value\n")
+                == record_result("", millis(1_123), Kind::Stdout, "value\n")
+        );
+        check!(
+            parse_record_str("100 err value\\\nmore")
+                == record_result("more", seconds(100), Kind::Stderr, "value")
+        );
+        check!(
+            parse_record_str("0.0 exit 10\nmore")
+                == record_result("more", seconds(0), Kind::Exit, "10")
+        );
+        check!(
+            parse_record_str("0.123456 ERROR <error>\nmore")
+                == record_result(
+                    "more",
+                    nanos(123_456_000),
+                    Kind::Error,
+                    "<error>"
+                )
+        );
+        check!(
+            parse_record_str(
+                "99.123456789 WRAPPER-ERROR <\\\\error>\n    more"
+            ) == record_result(
+                "    more",
+                nanos(99_123_456_789),
+                Kind::WrapperError,
+                "<\\error>"
+            )
+        );
+    }
+
+    #[test]
+    fn record_parser_ok_multiline() {
+        check!(
+            parse_record_str("0 out line1\n      line2\nrecord2")
+                == record_result(
+                    "record2",
+                    seconds(0),
+                    Kind::Stdout,
+                    "line1\nline2\n"
+                )
+        );
+        check!(
+            parse_record_str("0 err a\n       b\n")
+                == record_result("", seconds(0), Kind::Stderr, "a\n b\n")
+        );
+        check!(
+            parse_record_str("0 ERROR a\n        b\\\n")
+                == record_result("", seconds(0), Kind::Error, "a\nb")
+        );
+        check!(
+            parse_record_str("0 out line1\n      line2\n      line3\n")
+                == record_result(
+                    "",
+                    seconds(0),
+                    Kind::Stdout,
+                    "line1\nline2\nline3\n"
+                )
+        );
+    }
+
+    #[test]
+    fn record_parser_err() {
+        check!(parse_record_str(".123 out value\n").is_err());
+        check!(parse_record_str("0.1234567890 out value\n").is_err());
+        check!(
+            // u64::MAX =     18446744073709551615
+            parse_record_str("99999999999999999999.0 out value\n").is_err()
+        );
+        check!(parse_record_str("1.1 bad value\n").is_err());
+        check!(parse_record_str("1.1 out\n").is_err());
+        check!(parse_record_str("1.1 out value").is_err());
+        check!(parse_record_str("").is_err());
+        check!(parse_record_str("abc").is_err());
+    }
+
+    /// Parse a string using `metadata_line_parser()`.
+    fn parse_metadata_str(s: &str) -> Result<(&str, (&str, String)), NomError> {
+        let (rest, (key, value)) = metadata_line_parser()(s.as_bytes())?;
+        Ok((
+            std::str::from_utf8(rest).unwrap(),
+            (
+                std::str::from_utf8(key).unwrap(),
+                String::from_utf8(value).unwrap(),
+            ),
+        ))
+    }
+
+    #[test]
+    fn metadata_line_parser_ok() {
+        let_assert!(Ok(("", ("key", v))) = parse_metadata_str("key: value\n"));
+        check!(v == "value");
+        let_assert!(Ok(("", ("key", v))) = parse_metadata_str("key:  v\n"));
+        check!(v == " v");
+        let_assert!(Ok(("", ("key", v))) = parse_metadata_str("key: b\\b\n"));
+        check!(v == "b\x08");
+        let_assert!(Ok(("", ("key", v))) = parse_metadata_str("key: \n"));
+        check!(v == "");
+    }
+
+    #[test]
+    fn metadata_line_parser_ok_multiline() {
+        let_assert!(
+            Ok(("   2\n", ("k", v))) = parse_metadata_str("k: v\n   2\n")
+        );
+        check!(v == "v");
+        let_assert!(Ok(("", ("k", v))) = parse_metadata_str("k: v\n    2\n"));
+        check!(v == "v\n2");
+        let_assert!(Ok(("", ("k", v))) = parse_metadata_str("k: v\n     2\n"));
+        check!(v == "v\n 2");
+        let_assert!(
+            Ok(("", ("k", v))) = parse_metadata_str("k: v\n    2\n    3\n")
+        );
+        check!(v == "v\n2\n3");
+        let_assert!(Ok(("", ("k", v))) = parse_metadata_str("k: v\n    \n"));
+        check!(v == "v\n");
+    }
+
+    #[test]
+    fn metadata_line_parser_err() {
+        check!(parse_metadata_str("key value\n").is_err());
+        check!(parse_metadata_str("a b: value\n").is_err());
+        check!(parse_metadata_str("#key: value\n").is_err());
+        check!(parse_metadata_str("\nkey: value\n").is_err());
+        check!(parse_metadata_str(": value\n").is_err());
+        check!(parse_metadata_str("key: value").is_err());
     }
 
     /// Convenience function to get `(u64::MAX + 1)to_string()`.
