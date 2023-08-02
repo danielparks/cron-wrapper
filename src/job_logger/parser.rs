@@ -6,7 +6,8 @@ use nom::{
     bytes::complete::{is_a, is_not, tag, take_until},
     character::complete::{char, digit1},
     combinator::{
-        all_consuming, consumed, flat_map, map, map_res, opt, recognize, value,
+        all_consuming, consumed, flat_map, map, map_res, opt, recognize,
+        success, value,
     },
     error::ParseError,
     multi::{count, many0, separated_list1},
@@ -62,12 +63,14 @@ pub fn parse_log(
     (Vec<(&[u8], Vec<u8>)>, Vec<Record>),
     nom::Err<nom::error::Error<&[u8]>>,
 > {
-    let mut parser = all_consuming(pair(
-        many0(metadata_line_parser()),
-        map(
-            opt(preceded(tag("\n"), many0(record_parser()))),
-            Option::unwrap_or_default,
-        ),
+    let mut parser = alt((
+        all_consuming(separated_pair(
+            many0(metadata_line_parser()),
+            tag("\n"),
+            many0(record_parser()),
+        )),
+        all_consuming(pair(many0(metadata_line_parser()), success(Vec::new()))),
+        all_consuming(pair(success(Vec::new()), many0(record_parser()))),
     ));
 
     let (rest, (metadata, records)) = parser(input)?;
@@ -356,6 +359,105 @@ mod tests {
     }
 
     type NomError<'a> = nom::Err<nom::error::Error<&'a [u8]>>;
+
+    /// Parse a string using `parse_log()`.
+    #[allow(clippy::type_complexity)] // Hard to avoid.
+    fn parse_log_str(
+        input: &str,
+    ) -> Result<(Vec<(&str, String)>, Vec<Record>), NomError> {
+        parse_log(input.as_bytes()).map(|(metadata, records)| {
+            (
+                metadata
+                    .iter()
+                    .map(|(key, value)| {
+                        (
+                            std::str::from_utf8(key).unwrap(),
+                            String::from_utf8(value.clone()).unwrap(),
+                        )
+                    })
+                    .collect(),
+                records,
+            )
+        })
+    }
+
+    #[test]
+    fn log_parser_simple() {
+        let_assert!(
+            Ok((metadata, records)) = parse_log_str(
+                "key: value\n\
+                \n\
+                0.000 exit 0\n"
+            )
+        );
+        check!(metadata.as_slice() == [("key", "value".to_owned())]);
+        check!(
+            records.as_slice()
+                == [Record {
+                    time_offset: Duration::ZERO,
+                    kind: Kind::Exit,
+                    value: b"0".to_vec(),
+                }]
+        );
+    }
+
+    #[test]
+    fn log_parser_blank_no_metadata() {
+        let_assert!(
+            Ok((metadata, records)) = parse_log_str("\n0.001 out foo\n")
+        );
+        check!(metadata.as_slice() == []);
+        check!(
+            records.as_slice()
+                == [Record {
+                    time_offset: millis(1),
+                    kind: Kind::Stdout,
+                    value: b"foo\n".to_vec(),
+                }]
+        );
+    }
+
+    #[test]
+    fn log_parser_no_blank_no_metadata() {
+        let_assert!(Ok((metadata, records)) = parse_log_str("1 err bar\\\n"));
+        check!(metadata.as_slice() == []);
+        check!(
+            records.as_slice()
+                == [Record {
+                    time_offset: seconds(1),
+                    kind: Kind::Stderr,
+                    value: b"bar".to_vec(),
+                }]
+        );
+    }
+
+    #[test]
+    fn log_parser_blank_no_records() {
+        let_assert!(Ok((metadata, records)) = parse_log_str("k: v\n\n"));
+        check!(metadata.as_slice() == [("k", "v".to_owned())]);
+        check!(records.as_slice() == []);
+    }
+
+    #[test]
+    fn log_parser_no_blank_no_records() {
+        let_assert!(Ok((metadata, records)) = parse_log_str("k: v\n"));
+        check!(metadata.as_slice() == [("k", "v".to_owned())]);
+        check!(records.as_slice() == []);
+    }
+
+    #[test]
+    fn log_parser_empty() {
+        let_assert!(Ok((metadata, records)) = parse_log_str(""));
+        check!(metadata.as_slice() == []);
+        check!(records.as_slice() == []);
+    }
+
+    #[test]
+    fn log_parser_just_blank() {
+        let_assert!(Ok((metadata, records)) = parse_log_str("\n"));
+        check!(metadata.as_slice() == []);
+        check!(records.as_slice() == []);
+    }
 
     /// Parse a string using `record_parser()`.
     fn parse_record_str(s: &str) -> Result<(&[u8], Record), NomError> {
