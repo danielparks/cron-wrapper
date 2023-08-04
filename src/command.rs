@@ -645,9 +645,6 @@ impl Child {
     /// let_assert!(None = child.next_event());
     /// ```
     pub fn next_event(&mut self) -> Option<Event<'_>> {
-        // FIXME? this sometimes messes up the order if stderr and stdout are
-        // used in the same line. Not sure this is possible to fix.
-
         // Are we still reading?
         if let State::Reading(stream) = self.state {
             match self.read(stream) {
