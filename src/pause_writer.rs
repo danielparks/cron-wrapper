@@ -62,7 +62,7 @@ impl PausableWriter {
         if self.paused {
             self.buffer_writer.print(&self.buffer)?;
             self.buffer.clear();
-            self.writer.flush()?; // FIXME? does this make sense?
+            self.writer.flush()?;
         }
 
         self.paused = false;
