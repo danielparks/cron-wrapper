@@ -215,10 +215,13 @@ fn new_logger_config() -> ConfigBuilder {
     let mut builder = ConfigBuilder::new();
     builder.set_target_level(LevelFilter::Error);
 
-    // FIXME: If this fails it will just print the time in UTC. That might be a
-    // little surprising, so this should probably warn the user... except that
-    // we haven’t finished setting up logging.
-    let _ = builder.set_time_offset_to_local();
+    if builder.set_time_offset_to_local().is_err() {
+        // We haven’t finished setting up logging, so just print to stderr.
+        eprintln!(
+            "Warning: could not get local timezone so logging timestamps will \
+            be in UTC."
+        );
+    }
 
     builder
 }
