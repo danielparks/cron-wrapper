@@ -23,6 +23,9 @@ const TIMEOUT_RESOLUTION: Duration = Duration::from_millis(1);
 /// [`Timeout::start()`] to get a new `Timeout::Pending` that tracks how much
 /// time has passed, then call [`Timeout::check_expired()`] on that to get
 /// `Timeout::Expired` when the timeout has expired.
+///
+/// Comparisons between timeouts are based entirely on the remaining timeout.
+/// See [`Timeout::cmp()`] for details.
 #[derive(Clone, Eq, Debug)]
 pub enum Timeout {
     /// Never time out.
@@ -213,8 +216,24 @@ impl From<Option<Duration>> for Timeout {
 }
 
 impl Ord for Timeout {
+    /// This method returns an [`Ordering`] between `self` and `other`.
+    ///
+    /// This comparison is made entirely based on timeout remaining. For
+    /// example, a running timeout ([`Timeout::Pending`]) that has 5 seconds
+    /// remaining is greater than a future timeout ([`Timeout::Future`]) of 1
+    /// second. A running timeout of 1 second is less than a future timeout of
+    /// 5 seconds.
+    ///
+    /// [`Timeout::Expired`] all have 0 seconds remaining and are all equal
+    /// regardless of the amount of time elapsed.
+    ///
+    /// [`Timeout::Never`] are all treated as infinite; they are greater than
+    /// all other timeouts and equal to all other `Timeout::Never`s.
+    ///
+    /// `self.cmp(&other)` returns `Ordering::Greater` if `self > other`.
+    ///
+    /// [Read more](Ord::cmp())
     fn cmp(&self, other: &Self) -> Ordering {
-        // FIXME: should Expired always be shortest?
         match (self.timeout(), other.timeout()) {
             (None, None) => Ordering::Equal,
             (None, _) => Ordering::Greater,
