@@ -120,14 +120,14 @@ pub enum Error {
     },
 
     /// The idle timeout elapsed waiting for input in `poll()`.
-    #[error("Timed out waiting for input after {:?}", timeout.elapsed_rounded())]
+    #[error("Timed out waiting for input after {:?}", timeout.elapsed_rounded_to(Duration::from_millis(1)))]
     IdleTimeout {
         /// Information about the timeout in the form of [`Timeout::Expired`].
         timeout: Timeout,
     },
 
     /// The run timeout elapsed.
-    #[error("Run timed out after {:?}", timeout.elapsed_rounded())]
+    #[error("Run timed out after {:?}", timeout.elapsed_rounded_to(Duration::from_millis(1)))]
     RunTimeout {
         /// Information about the timeout in the form of [`Timeout::Expired`].
         timeout: Timeout,
