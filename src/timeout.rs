@@ -176,7 +176,10 @@ impl Timeout {
     }
 
     /// Calculate how much of the timeout has elapsed, rounded to the nearest
-    /// millisecond.
+    /// `factor` of time.
+    ///
+    /// For example, if `factor` is `Duration::from_millis(1)`, then it will
+    /// round the elapsed time to the nearest millisecond.
     ///
     /// [`Timeout::Never`] and [`Timeout::Future`] both always return
     /// [`Duration::ZERO`].
@@ -184,21 +187,8 @@ impl Timeout {
     /// This will not do anything special if called on a [`Timeout::Pending`]
     /// that has expired. See [`Timeout::check_expired()`].
     #[must_use]
-    pub fn elapsed_rounded(&self) -> Duration {
-        // FIXME: pass factor to round to?
-        let elapsed = self.elapsed();
-        let nanos: u32 = elapsed.subsec_nanos();
-        let sub_ms = nanos % 1_000_000;
-
-        // sub_ms is nanos % 1e6, so sub_ms <= nanos
-        #[allow(clippy::arithmetic_side_effects)]
-        let rounded = if sub_ms < 500_000 {
-            nanos - sub_ms
-        } else {
-            nanos + 1_000_000 - sub_ms
-        };
-
-        Duration::new(elapsed.as_secs(), rounded)
+    pub fn elapsed_rounded_to(&self, factor: Duration) -> Duration {
+        round_duration(self.elapsed(), factor)
     }
 
     /// Will this never time out?
@@ -208,6 +198,61 @@ impl Timeout {
     pub const fn is_never(&self) -> bool {
         matches!(self, Self::Never)
     }
+}
+
+/// Round a `Duration` to the nearest `factor`.
+///
+/// # Panics
+///
+/// Panics if `factor` is 0.
+#[inline]
+fn round_duration(input: Duration, factor: Duration) -> Duration {
+    let nanos = input.as_nanos();
+    let factor = factor.as_nanos();
+
+    assert_ne!(factor, 0, "0 is invalid factor for round_duration()");
+    #[allow(clippy::arithmetic_side_effects)]
+    let remainder = nanos % factor;
+
+    // remainder <= nanos
+    #[allow(clippy::arithmetic_side_effects)]
+    let base = nanos - remainder;
+
+    #[allow(clippy::integer_division)]
+    let rounded = if remainder < factor / 2 {
+        base
+    } else {
+        // Worst case:
+        //     remainder = factor/2 - 1
+        //     input = Duration::MAX - factor/2 - 1
+        // FIXME think this through
+        base.checked_add(factor).unwrap()
+    };
+
+    nanos_to_duration(rounded)
+}
+
+/// Create a new [`Duration`] from a `u128` of nanoseconds.
+///
+/// This is essentially just [`Duration::from_nanos()`] but it works on a
+/// `u128`, which can represent any valid `Duration`.
+///
+/// # Panics
+///
+/// `Duration` can only represent 64 bits worth of seconds and less than 32 bits
+/// (1e9) worth of nanoseconds, which works out to being roughly 94 bits. A
+/// `u128` can therefore represent values that are invalid `Duration`s. This
+/// will panic in those cases.
+fn nanos_to_duration(total: u128) -> Duration {
+    /// Just to make things clear.
+    const NANOS_PER_SECOND: u128 = 1_000_000_000;
+    #[allow(clippy::integer_division)]
+    Duration::new(
+        (total / NANOS_PER_SECOND).try_into().expect(
+            "nanos_to_duration() overflowed seconds value for Duration",
+        ),
+        (total % NANOS_PER_SECOND).try_into().unwrap(),
+    )
 }
 
 impl fmt::Display for Timeout {
@@ -315,19 +360,28 @@ mod tests {
         }
     }
 
+    /// Convenience constant for 1 millisecond.
+    const MS: Duration = Duration::from_millis(1);
+
     #[test]
     fn elapsed_rounded_up() {
-        check!(expired_timeout(1_500).elapsed_rounded().as_micros() == 2_000);
+        check!(
+            expired_timeout(1_500).elapsed_rounded_to(MS).as_micros() == 2_000
+        );
     }
 
     #[test]
     fn elapsed_rounded_exact() {
-        check!(expired_timeout(2_000).elapsed_rounded().as_micros() == 2_000);
+        check!(
+            expired_timeout(2_000).elapsed_rounded_to(MS).as_micros() == 2_000
+        );
     }
 
     #[test]
     fn elapsed_rounded_down() {
-        check!(expired_timeout(2_499).elapsed_rounded().as_micros() == 2_000);
+        check!(
+            expired_timeout(2_499).elapsed_rounded_to(MS).as_micros() == 2_000
+        );
     }
 
     #[test]
@@ -463,5 +517,93 @@ mod tests {
     fn check_expired_timeout_expired() {
         let timeout = expired_timeout(5_000);
         check!(timeout.check_expired() == Some(timeout));
+    }
+
+    /// Convenient alias for [`Duration::from_millis()`].
+    const fn ms(ms: u64) -> Duration {
+        Duration::from_millis(ms)
+    }
+
+    #[test]
+    fn round_duration_ms_factor() {
+        check!(ms(10) == round_duration(ms(10), ms(1)));
+
+        check!(ms(10) == round_duration(ms(10), ms(2)));
+        check!(ms(10) == round_duration(ms(9), ms(2)));
+
+        check!(ms(9) == round_duration(ms(9), ms(3)));
+        check!(ms(9) == round_duration(ms(10), ms(3)));
+        check!(ms(12) == round_duration(ms(11), ms(3)));
+        check!(ms(12) == round_duration(ms(12), ms(3)));
+
+        // Round values > 1 second
+        check!(ms(1_010) == round_duration(ms(1_010), ms(1)));
+
+        check!(ms(1_010) == round_duration(ms(1_010), ms(2)));
+        check!(ms(1_010) == round_duration(ms(1_009), ms(2)));
+
+        check!(ms(1_008) == round_duration(ms(1_008), ms(3)));
+        check!(ms(1_008) == round_duration(ms(1_009), ms(3)));
+        check!(ms(1_011) == round_duration(ms(1_010), ms(3)));
+        check!(ms(1_011) == round_duration(ms(1_011), ms(3)));
+    }
+
+    #[test]
+    fn round_duration_second_factor() {
+        check!(ms(0) == round_duration(ms(499), ms(1_000)));
+        check!(ms(1_000) == round_duration(ms(500), ms(1_000)));
+        check!(ms(1_000) == round_duration(ms(1_010), ms(1_000)));
+        check!(ms(1_000) == round_duration(ms(1_499), ms(1_000)));
+        check!(ms(2_000) == round_duration(ms(1_500), ms(1_000)));
+
+        check!(ms(1_001) == round_duration(ms(1_000), ms(1_001)));
+        check!(ms(1_001) == round_duration(ms(1_001), ms(1_001)));
+        check!(ms(1_001) == round_duration(ms(1_002), ms(1_001)));
+    }
+
+    #[test]
+    fn round_duration_giant_factor() {
+        check!(ms(0) == round_duration(ms(1_000_000), Duration::MAX));
+        check!(Duration::MAX == round_duration(Duration::MAX, Duration::MAX));
+    }
+
+    #[test]
+    #[should_panic]
+    fn round_duration_zero_factor() {
+        round_duration(ms(10), ms(0));
+    }
+
+    /// Theoretical maximum Duration as nanoseconds (based on u64 for seconds).
+    const NANOS_MAX: u128 = u64::MAX as u128 * 1_000_000_000 + 999_999_999;
+
+    #[test]
+    #[allow(clippy::arithmetic_side_effects)]
+    fn nanos_to_duration_ok() {
+        check!(Duration::ZERO == nanos_to_duration(0));
+        check!(Duration::new(1, 1) == nanos_to_duration(1_000_000_001));
+
+        // Check Duration::MAX two ways, since according it its docs it can vary
+        // based on platform.
+        check!(Duration::MAX == nanos_to_duration(Duration::MAX.as_nanos()));
+        check!(
+            Duration::new(u64::MAX, 999_999_999)
+                == nanos_to_duration(NANOS_MAX)
+        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn nanos_to_duration_overflow() {
+        nanos_to_duration(Duration::MAX.as_nanos() + 1);
+    }
+
+    #[test]
+    #[should_panic]
+    #[allow(clippy::arithmetic_side_effects)]
+    fn nanos_to_duration_overflow_manual() {
+        // One over the maximum duration. Just in case `Duration::MAX` is some
+        // other value, since the docs say it can vary by platform even if it
+        // currently is always `u64::MAX * 1_000_000_000 + 999_999_999`.
+        nanos_to_duration(NANOS_MAX + 1);
     }
 }
