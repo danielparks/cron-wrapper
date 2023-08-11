@@ -767,8 +767,6 @@ impl Child {
                 None => {
                     // FIXME: busy wait. Could use a signal? Could sleep for
                     // longer?
-                    // FIXME: the timeout comparison doesn’t round, so if it’s
-                    // within a 1ms of the timeout it will exit.
                     std::thread::yield_now();
                 }
             }
@@ -799,7 +797,9 @@ impl Child {
         let timeout = original_timeout.start();
 
         while self.events.is_empty() {
-            if let Some(expired) = timeout.check_expired() {
+            if let Some(expired) =
+                timeout.check_expired_within(Duration::from_millis(1))
+            {
                 return Err(timeout_error(original_timeout, expired));
             }
 
