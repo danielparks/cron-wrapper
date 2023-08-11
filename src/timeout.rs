@@ -14,9 +14,6 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::time::{Duration, Instant};
 
-/// Minimum valid timeout that poll() respects.
-const TIMEOUT_RESOLUTION: Duration = Duration::from_millis(1);
-
 /// A stateful timeout.
 ///
 /// Create a `Timeout::Future` to represent a planned timeout. Run
@@ -105,17 +102,49 @@ impl Timeout {
         }
     }
 
-    /// Has the timeout expired?
+    /// Check if the timeout has expired and return [`Timeout::Expired`] if so.
     ///
     /// Returns:
     ///   * `None` if the timeout has not expired.
     ///   * `Some(Timeout::Expired { .. })` if the timeout has expired.
     #[must_use]
+    #[inline]
     pub fn check_expired(&self) -> Option<Self> {
+        self.check_expired_within(Duration::from_nanos(1))
+    }
+
+    /// Check if the timeout has expired (paying attention to resolution) and
+    /// return [`Timeout::Expired`] if so.
+    ///
+    /// This accepts a `resolution` parameter to allow for functions that have
+    /// a resolution greater than nanosecond. For example, on UNIX-like systems
+    /// [`poll.2`] takes a timeout measured in milliseconds. To check if a
+    /// timeout is expired in that context you should pass
+    /// [`Duration::from_millis(1)`] as `resolution`.
+    ///
+    /// Essentially, the check is `timeout - elapsed < resolution`.
+    ///
+    /// A `resolution` of [`Duration::ZERO`] will be converted to
+    /// [`Duration::from_nanos(1)`], since no smaller resolution is possible.
+    ///
+    /// Returns:
+    ///   * `None` if the timeout has not expired.
+    ///   * `Some(Timeout::Expired { .. })` if the timeout has expired.
+    ///
+    /// [`poll.2`]: https://man7.org/linux/man-pages/man2/poll.2.html
+    #[must_use]
+    pub fn check_expired_within(&self, resolution: Duration) -> Option<Self> {
+        // Timeouts cannot be negative, so a resolution of 0
+        let resolution = if resolution == Duration::ZERO {
+            Duration::from_nanos(1)
+        } else {
+            resolution
+        };
+
         match &self {
             Self::Pending { timeout, start } => {
                 let elapsed = start.elapsed();
-                if timeout.saturating_sub(elapsed) < TIMEOUT_RESOLUTION {
+                if timeout.saturating_sub(elapsed) < resolution {
                     Some(Self::Expired {
                         requested: *timeout,
                         actual: elapsed,
@@ -156,7 +185,7 @@ impl Timeout {
     /// that has expired. See [`Timeout::check_expired()`].
     #[must_use]
     pub fn elapsed_rounded(&self) -> Duration {
-        // FIXME: actually consult resolution?
+        // FIXME: pass factor to round to?
         let elapsed = self.elapsed();
         let nanos: u32 = elapsed.subsec_nanos();
         let sub_ms = nanos % 1_000_000;
@@ -261,7 +290,7 @@ mod tests {
     #![allow(clippy::cognitive_complexity)]
 
     use super::*;
-    use assert2::{check, let_assert};
+    use assert2::check;
     use std::time::Duration;
 
     const fn future_timeout(microseconds: u64) -> Timeout {
@@ -409,13 +438,24 @@ mod tests {
     #[test]
     fn check_expired_timeout_pending() {
         check!(pending_timeout(5_000, 1_000).check_expired() == None);
+        check!(
+            let Some(Timeout::Expired { .. }) =
+                pending_timeout(5_000, 5_001).check_expired()
+        );
     }
 
     #[test]
-    fn check_expired_timeout_pending_overtime() {
-        let_assert!(
-            Some(Timeout::Expired { .. }) =
-                pending_timeout(5_000, 6_000).check_expired()
+    fn check_expired_within_timeout_pending() {
+        let resolution = Duration::from_millis(1);
+        // This is not exact because `pending_timeout()` has to generate an
+        // `Instant`, so the elapsed time grows as the test continues.
+        check!(
+            pending_timeout(5_000, 3_900).check_expired_within(resolution)
+                == None
+        );
+        check!(
+            let Some(Timeout::Expired { .. }) =
+                pending_timeout(5_000, 4_001).check_expired_within(resolution)
         );
     }
 
