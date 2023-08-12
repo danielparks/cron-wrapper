@@ -243,6 +243,7 @@ dependencies = [
  "os_pipe",
  "popol",
  "regex",
+ "roundable",
  "shlex",
  "simplelog",
  "tempfile",
@@ -527,6 +528,12 @@ name = "regex-syntax"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08c74e62047bb2de4ff487b251e4a92e24f48745648451635cec7d591162d9f"
+
+[[package]]
+name = "roundable"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60737ef89010387220203ffe33ff361b27a55cd5b6e80eb6bb226c443af07090"
 
 [[package]]
 name = "rust_decimal"

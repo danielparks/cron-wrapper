@@ -16,6 +16,7 @@ use bstr::ByteSlice;
 use log::{debug, error, info, trace};
 use os_pipe::{pipe, PipeReader};
 use popol::{interest, set_nonblocking};
+use roundable::{Roundable, MILLISECOND};
 use std::cmp;
 use std::collections::VecDeque;
 use std::ffi::OsString;
@@ -120,14 +121,20 @@ pub enum Error {
     },
 
     /// The idle timeout elapsed waiting for input in `poll()`.
-    #[error("Timed out waiting for input after {:?}", timeout.elapsed_rounded())]
+    #[error(
+        "Timed out waiting for input after {:?}",
+        timeout.elapsed().round_to(MILLISECOND)
+    )]
     IdleTimeout {
         /// Information about the timeout in the form of [`Timeout::Expired`].
         timeout: Timeout,
     },
 
     /// The run timeout elapsed.
-    #[error("Run timed out after {:?}", timeout.elapsed_rounded())]
+    #[error(
+        "Run timed out after {:?}",
+        timeout.elapsed().round_to(MILLISECOND)
+    )]
     RunTimeout {
         /// Information about the timeout in the form of [`Timeout::Expired`].
         timeout: Timeout,
