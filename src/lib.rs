@@ -6,4 +6,5 @@
 pub mod command;
 pub mod job_logger;
 pub mod pause_writer;
+pub mod roundable;
 pub mod timeout;

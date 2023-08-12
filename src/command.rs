@@ -11,6 +11,7 @@
 //! writes to stdout and then immediately writes to stderr, it may be too fast
 //! for the reading process to catch.
 
+use crate::roundable::Roundable;
 use crate::timeout::Timeout;
 use bstr::ByteSlice;
 use log::{debug, error, info, trace};
@@ -108,14 +109,14 @@ pub enum Error {
     },
 
     /// The idle timeout elapsed waiting for input in `poll()`.
-    #[error("Timed out waiting for input after {:?}", timeout.elapsed_rounded_to(Duration::from_millis(1)))]
+    #[error("Timed out waiting for input after {:?}", timeout.elapsed().round_to(Duration::from_millis(1)))]
     IdleTimeout {
         /// Information about the timeout in the form of [`Timeout::Expired`].
         timeout: Timeout,
     },
 
     /// The run timeout elapsed.
-    #[error("Run timed out after {:?}", timeout.elapsed_rounded_to(Duration::from_millis(1)))]
+    #[error("Run timed out after {:?}", timeout.elapsed().round_to(Duration::from_millis(1)))]
     RunTimeout {
         /// Information about the timeout in the form of [`Timeout::Expired`].
         timeout: Timeout,
