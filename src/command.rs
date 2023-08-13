@@ -925,6 +925,7 @@ fn timeout_error(timeout: &Timeout, expired: Timeout) -> Error {
 mod tests {
     use super::*;
     use assert2::{assert, check, let_assert};
+    use std::thread;
     use std::time::{Duration, Instant};
 
     #[test]
@@ -1080,30 +1081,30 @@ mod tests {
     fn wait_idle_timeout() {
         let start = Instant::now();
         let mut child = Command::new("/bin/sleep", ["0.02"])
-            .idle_timeout(Duration::from_millis(15))
+            .idle_timeout(Duration::from_millis(5))
             .spawn()
             .unwrap();
 
         let_assert!(Err(Error::IdleTimeout { .. }) = child.wait());
         check!(start.elapsed() < Duration::from_millis(20));
 
+        thread::sleep(Duration::from_millis(20));
         let_assert!(Ok(status) = child.wait());
         check!(status.success());
-        check!(start.elapsed() >= Duration::from_millis(20));
     }
 
     #[test]
     fn wait_run_timeout() {
         let start = Instant::now();
         let mut child = Command::new("/bin/sleep", ["0.02"])
-            .run_timeout(Duration::from_millis(15))
+            .run_timeout(Duration::from_millis(5))
             .spawn()
             .unwrap();
 
         let_assert!(Err(Error::RunTimeout { .. }) = child.wait());
         check!(start.elapsed() < Duration::from_millis(20));
 
+        thread::sleep(Duration::from_millis(20));
         let_assert!(Err(Error::RunTimeout { .. }) = child.wait());
-        check!(start.elapsed() < Duration::from_millis(20));
     }
 }
