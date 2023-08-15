@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Instant;
 use termcolor::WriteColor;
+use thiserror::Error;
 use time::format_description::well_known::{iso8601, Iso8601};
 use time::OffsetDateTime;
 
@@ -65,6 +66,51 @@ pub struct JobLogger {
 
     /// Track what the [`JobLogger`] has already written.
     state: State,
+}
+
+/// Errors raised by [`JobLogger`].
+#[derive(Debug, Error)]
+pub enum Error {
+    /// Error formatting date time for metadata or log file name.
+    #[error("Error formatting date time: {0}")]
+    DateTimeFormat(#[from] time::error::Format),
+
+    /// Some sort of IO error creating a uniquely named log file.
+    ///
+    /// This will never have a [`io::ErrorKind::AlreadyExists`] error, since
+    /// we only return these errors when creating a log file within a directory
+    /// ([`Destination::Directory`]). In that case we try multiple times to find
+    /// a unique log file name and if we go over a maximum number of attempts
+    /// we return [`Error::TooManyAttemptsCreatingUniqueLog`].
+    #[error("Could not create unique log file {last:?}: {error}")]
+    CreatingLogFile {
+        /// How many names were attempted.
+        attempts: usize,
+
+        /// The path for the log file that failed.
+        last: PathBuf,
+
+        /// The error that occurred.
+        error: io::Error,
+    },
+
+    /// Maxed out attempts at finding a unique log file name.
+    #[error(
+        "Could not create unique log file after {attempts} attempts. \
+        Last: {last:?}"
+    )]
+    TooManyAttemptsCreatingUniqueLog {
+        /// How many names were attempted.
+        attempts: usize,
+
+        /// The path that was last attempted.
+        last: PathBuf,
+    },
+
+    /// Some sort of IO error while writing to a log file.
+    // FIXME log the destination
+    #[error("Error writing to log file: {0}")]
+    WritingLogFile(io::Error),
 }
 
 impl Default for JobLogger {
@@ -132,7 +178,7 @@ impl JobLogger {
     /// This will return an error if it can’t create a log file, e.g. if there
     /// is a [`Destination::Directory`], or if it can’t write the log metadata
     /// header to all destinations.
-    pub fn initialize(&mut self) -> anyhow::Result<()> {
+    pub fn initialize(&mut self) -> Result<(), Error> {
         if self.state != State::Initial {
             return Ok(());
         }
@@ -195,7 +241,7 @@ impl JobLogger {
     pub fn log_wrapper_error(
         &mut self,
         error: &anyhow::Error,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), Error> {
         self.write_record(Kind::WrapperError, format!("{error:?}").as_bytes())
     }
 
@@ -204,7 +250,7 @@ impl JobLogger {
     /// # Errors
     ///
     /// This will return an error if it can’t write to the log.
-    pub fn log_event(&mut self, event: &Event) -> anyhow::Result<()> {
+    pub fn log_event(&mut self, event: &Event) -> Result<(), Error> {
         match &event {
             Event::Stdout(output) => self.write_record(Kind::Stdout, output),
             Event::Stderr(output) => self.write_record(Kind::Stderr, output),
@@ -226,7 +272,7 @@ impl JobLogger {
     /// # Errors
     ///
     /// This will return an error if it can’t write to the log.
-    fn write_file_header(&mut self) -> anyhow::Result<()> {
+    fn write_file_header(&mut self) -> Result<(), Error> {
         if let Some(command) = &self.command {
             let full_command = command.command_line().collect::<Vec<_>>();
             self.write_metadata(
@@ -244,7 +290,7 @@ impl JobLogger {
     /// # Errors
     ///
     /// This will return an error if it can’t write to the log.
-    fn write_record(&mut self, kind: Kind, value: &[u8]) -> anyhow::Result<()> {
+    fn write_record(&mut self, kind: Kind, value: &[u8]) -> Result<(), Error> {
         if self.state == State::Initial {
             self.initialize()?;
         }
@@ -281,11 +327,7 @@ impl JobLogger {
     /// # Errors
     ///
     /// This will return an error if it can’t write to the log.
-    fn write_metadata(
-        &mut self,
-        key: &str,
-        value: &[u8],
-    ) -> anyhow::Result<()> {
+    fn write_metadata(&mut self, key: &str, value: &[u8]) -> Result<(), Error> {
         // FIXME? Should this be an error?
         assert!(
             self.state == State::Metadata,
@@ -321,7 +363,7 @@ impl JobLogger {
         kind: Kind,
         input: &[u8],
         indent: usize,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), Error> {
         let output = escape_value(input, indent, kind.newline_behavior());
 
         let mut color = termcolor::ColorSpec::new();
@@ -345,12 +387,12 @@ impl JobLogger {
     /// # Errors
     ///
     /// This will return an error if it can’t write to one of the destinations.
-    fn write_all(&mut self, data: &[u8]) -> anyhow::Result<()> {
+    fn write_all(&mut self, data: &[u8]) -> Result<(), Error> {
         self.initialize()?;
 
         // FIXME? apply to all destinations even if one returns an error?
         for destination in &mut self.destinations {
-            destination.write_all(data)?;
+            destination.write_all(data).map_err(Error::WritingLogFile)?;
         }
 
         Ok(())
@@ -362,12 +404,12 @@ impl JobLogger {
     ///
     /// This will return an error if it can’t set the color for one of the
     /// destinations that should support it.
-    fn set_color(&mut self, spec: &termcolor::ColorSpec) -> anyhow::Result<()> {
+    fn set_color(&mut self, spec: &termcolor::ColorSpec) -> Result<(), Error> {
         self.initialize()?;
 
         // FIXME? apply to all destinations even if one returns an error?
         for destination in &mut self.destinations {
-            destination.set_color(spec)?;
+            destination.set_color(spec).map_err(Error::WritingLogFile)?;
         }
 
         Ok(())
@@ -379,12 +421,12 @@ impl JobLogger {
     ///
     /// This will return an error if it can’t reset the color for one of the
     /// destinations that should support it.
-    fn reset_color(&mut self) -> anyhow::Result<()> {
+    fn reset_color(&mut self) -> Result<(), Error> {
         self.initialize()?;
 
         // FIXME? apply to all destinations even if one returns an error?
         for destination in &mut self.destinations {
-            destination.reset()?;
+            destination.reset().map_err(Error::WritingLogFile)?;
         }
 
         Ok(())
@@ -402,7 +444,7 @@ impl JobLogger {
     fn create_file_in_directory(
         &self,
         directory: &Path,
-    ) -> anyhow::Result<Destination> {
+    ) -> Result<Destination, Error> {
         /// We only try up to 100 times to create a log file. Since log files
         /// are named with a timestamp and a process ID, this should be way more
         /// than enough.
@@ -430,18 +472,20 @@ impl JobLogger {
                     number = format!(".{i}");
                 }
                 Ok(file) => return Ok(Destination::File { path, file }),
-                Err(error) => return Err(error.into()),
+                Err(error) => {
+                    return Err(Error::CreatingLogFile {
+                        attempts: i,
+                        last: path,
+                        error,
+                    })
+                }
             }
         }
 
-        Err(io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            format!(
-                "Could not create unique log file after {MAX_ATTEMPTS} \
-                attempts. Last: {path:?}"
-            ),
-        )
-        .into())
+        Err(Error::TooManyAttemptsCreatingUniqueLog {
+            attempts: MAX_ATTEMPTS,
+            last: path,
+        })
     }
 
     /// Private: generate the first part of a file name for a log.
@@ -449,7 +493,7 @@ impl JobLogger {
     /// # Errors
     ///
     /// This will return an error if it fails to format the date and time.
-    fn generate_file_name_base(&self) -> anyhow::Result<OsString> {
+    fn generate_file_name_base(&self) -> Result<OsString, time::error::Format> {
         let mut file_name = OsString::from(
             self.start_time.format(&Iso8601::<FILE_NAME_DATE_FORMAT>)?,
         );
@@ -684,7 +728,7 @@ mod tests {
     use crate::command;
     use crate::timeout::Timeout;
     use anyhow::anyhow;
-    use assert2::{check, let_assert};
+    use assert2::check;
     use bstr::ByteSlice;
     use regex::{bytes, Regex};
     use std::cell::RefCell;
@@ -993,9 +1037,8 @@ mod tests {
             vec![Destination::Directory(directory.path().to_path_buf())];
         check!(logger.paths().is_empty());
 
-        let_assert!(Err(error) = logger.log_event(&Event::Stdout(b"abc\n")));
-        let_assert!(Some(error) = error.downcast_ref::<io::Error>());
-        check!(error.kind() == io::ErrorKind::AlreadyExists);
+        check!(let Err(Error::TooManyAttemptsCreatingUniqueLog { .. }) =
+            logger.log_event(&Event::Stdout(b"abc\n")));
     }
 
     /// Helper function to make tests easier to read.
