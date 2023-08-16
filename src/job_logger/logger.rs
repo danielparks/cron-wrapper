@@ -83,7 +83,7 @@ pub enum Error {
     /// a unique log file name and if we go over a maximum number of attempts
     /// we return [`Error::TooManyAttemptsCreatingUniqueLog`].
     #[error("Could not create unique log file {last:?}: {error}")]
-    CreatingLogFile {
+    CreatingLog {
         /// How many names were attempted.
         attempts: usize,
 
@@ -107,10 +107,15 @@ pub enum Error {
         last: PathBuf,
     },
 
-    /// Some sort of IO error while writing to a log file.
-    // FIXME log the destination
-    #[error("Error writing to log file: {0}")]
-    WritingLogFile(io::Error),
+    /// Some sort of IO error while writing to a log.
+    #[error("Error writing to log {destination}: {error}")]
+    WritingLog {
+        /// String returned by [`Destination::error_description()`].
+        destination: String,
+
+        /// The error that occurred.
+        error: io::Error,
+    },
 }
 
 impl Default for JobLogger {
@@ -392,7 +397,12 @@ impl JobLogger {
 
         // FIXME? apply to all destinations even if one returns an error?
         for destination in &mut self.destinations {
-            destination.write_all(data).map_err(Error::WritingLogFile)?;
+            destination
+                .write_all(data)
+                .map_err(|error| Error::WritingLog {
+                    destination: destination.error_description(),
+                    error,
+                })?;
         }
 
         Ok(())
@@ -409,7 +419,12 @@ impl JobLogger {
 
         // FIXME? apply to all destinations even if one returns an error?
         for destination in &mut self.destinations {
-            destination.set_color(spec).map_err(Error::WritingLogFile)?;
+            destination
+                .set_color(spec)
+                .map_err(|error| Error::WritingLog {
+                    destination: destination.error_description(),
+                    error,
+                })?;
         }
 
         Ok(())
@@ -426,7 +441,10 @@ impl JobLogger {
 
         // FIXME? apply to all destinations even if one returns an error?
         for destination in &mut self.destinations {
-            destination.reset().map_err(Error::WritingLogFile)?;
+            destination.reset().map_err(|error| Error::WritingLog {
+                destination: destination.error_description(),
+                error,
+            })?;
         }
 
         Ok(())
@@ -473,7 +491,7 @@ impl JobLogger {
                 }
                 Ok(file) => return Ok(Destination::File { path, file }),
                 Err(error) => {
-                    return Err(Error::CreatingLogFile {
+                    return Err(Error::CreatingLog {
                         attempts: i,
                         last: path,
                         error,
@@ -554,6 +572,18 @@ pub enum Destination {
 
     /// A stream that might accept color, e.g. stdout.
     ColorStream(Rc<RefCell<dyn WriteColor>>),
+}
+
+impl Destination {
+    /// Describe the destination for an error message.
+    #[must_use]
+    pub fn error_description(&self) -> String {
+        match self {
+            Self::Directory(path) => format!("directory {path:?}"),
+            Self::File { path, .. } => format!("file {path:?}"),
+            Self::Stream(_) | Self::ColorStream(_) => "stream".to_owned(),
+        }
+    }
 }
 
 impl fmt::Debug for Destination {
