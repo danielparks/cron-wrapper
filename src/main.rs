@@ -4,6 +4,7 @@
 #![forbid(unsafe_code)]
 
 use anyhow::{bail, Context};
+use bstr::ByteSlice;
 use clap::Parser;
 use cron_wrapper::command::{Command, Event};
 use cron_wrapper::job_logger::{Destination, JobLogger};
@@ -118,7 +119,10 @@ fn start(params: &Params, job_logger: &mut JobLogger) -> anyhow::Result<i32> {
                     println!("Exited with code {code}");
                 }
 
-                info!("Exit with {code}: {}", command.command_line_sh());
+                info!(
+                    "Exit with {code}: {}",
+                    command.command_line_sh().as_bstr()
+                );
                 return Ok(code);
             }
             Event::Error(error) => {
