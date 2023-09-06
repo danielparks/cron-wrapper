@@ -21,6 +21,7 @@ use std::convert::Into;
 use std::ffi::OsString;
 use std::fmt;
 use std::io::{self, Read};
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::process::ExitStatusExt;
 use std::path::Path;
 use std::process;
@@ -445,7 +446,7 @@ impl Command {
         let run_timeout = self.run_timeout.start();
         let idle_timeout = self.idle_timeout.clone();
 
-        info!("Start: {}", self.command_line_sh());
+        info!("Start: {}", self.command_line_sh().as_bstr());
         debug!("run timeout {run_timeout}, idle timeout {idle_timeout}");
 
         let mut process = process::Command::new(&command)
@@ -498,14 +499,9 @@ impl Command {
     }
 
     /// Get the command line to run escaped for the shell.
-    ///
-    /// Note that this uses a lossy conversion of `OsString` to String.
     #[must_use]
-    pub fn command_line_sh(&self) -> String {
-        shell_words::join(
-            self.command_line()
-                .map(|arg| arg.to_string_lossy().into_owned()),
-        )
+    pub fn command_line_sh(&self) -> Vec<u8> {
+        shlex::bytes::join(self.command_line().map(|word| word.as_bytes()))
     }
 }
 
