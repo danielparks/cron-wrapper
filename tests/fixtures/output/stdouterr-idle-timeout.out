@@ -1,8 +1,8 @@
 Command: ["tests/fixtures/stdouterr.sh"]
-Start: 2023-07-26T13:32:00.259549000-07:00
+Start: 2023-09-10T22:01:18.296574000-07:00
 
 0.003 out 01 stdout
-          02 stdout
+0.003 out 02 stdout
 0.003 err 03 STDERR
           04 STDERR sleep 0.1
-0.053 ERROR IdleTimeout { timeout: Expired { requested: 50ms, actual: 50.078023ms } }
+0.053 ERROR Timed out waiting for input after 50ms
