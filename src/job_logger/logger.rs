@@ -247,7 +247,7 @@ impl JobLogger {
         &mut self,
         error: &anyhow::Error,
     ) -> Result<(), Error> {
-        self.write_record(Kind::WrapperError, format!("{error:?}").as_bytes())
+        self.write_record(Kind::WrapperError, error.to_string().as_bytes())
     }
 
     /// Log an [`Event`] received from the [`Child`].
@@ -267,7 +267,7 @@ impl JobLogger {
                 }
             }
             Event::Error(error) => {
-                self.write_record(Kind::Error, format!("{error:?}").as_bytes())
+                self.write_record(Kind::Error, error.to_string().as_bytes())
             }
         }
     }
@@ -937,7 +937,7 @@ mod tests {
         //     Start: 2023-05-19T22:17:04.858177000-07:00
         //
         //     0.000 out abc
-        //     0.000 ERROR IdleTimeout { ... }
+        //     0.000 ERROR Timed out waiting for input after 0ns
         //     0.000 out def
         //
         check_output(
@@ -945,7 +945,7 @@ mod tests {
             "^Start: <date>T<time+>\n\
             \n\
             \\d\\.\\d{3} out abc\n\
-            \\d\\.\\d{3} ERROR IdleTimeout.*?\n\
+            \\d\\.\\d{3} ERROR Timed out waiting for input after 0ns\n\
             \\d\\.\\d{3} out def\n$",
         );
     }
@@ -963,7 +963,7 @@ mod tests {
         //     Start: 2023-05-19T22:17:04.858177000-07:00
         //
         //     0.000 out abc\
-        //     0.000 ERROR IdleTimeout { ... }
+        //     0.000 ERROR Timed out waiting for input after 0ns
         //     0.000 out def
         //
         check_output(
@@ -971,7 +971,7 @@ mod tests {
             "^Start: <date>T<time+>\n\
             \n\
             \\d\\.\\d{3} out abc\\\\\n\
-            \\d\\.\\d{3} ERROR IdleTimeout \\{.*?\\}\n\
+            \\d\\.\\d{3} ERROR Timed out waiting for input after 0ns\n\
             \\d\\.\\d{3} out def\n$",
         );
     }
