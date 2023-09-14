@@ -47,7 +47,7 @@ pub struct Params {
     /// example, if you were running /bin/ls, the file name might be
     /// 2023-05-10T20:05:17-07:00.ls.15297.log.
     ///
-    /// Conflicts with --log-dir <DIRECTORY>
+    /// Conflicts with --log-file <PATH>
     #[clap(short = 'l', long, value_name = "DIRECTORY")]
     pub log_dir: Option<PathBuf>,
 
@@ -56,7 +56,7 @@ pub struct Params {
     /// This will save structured logging data to PATH. If a file already exists
     /// at PATH, it will be overwritten.
     ///
-    /// Conflicts with --log-file <PATH>
+    /// Conflicts with --log-dir <DIRECTORY>
     #[clap(short = 'L', long, value_name = "PATH", conflicts_with = "log_dir")]
     pub log_file: Option<PathBuf>,
 
