@@ -9,7 +9,6 @@ use nom::{
         all_consuming, consumed, flat_map, map, map_res, opt, recognize,
         success, value,
     },
-    error::ParseError,
     multi::{count, many0, separated_list1},
     sequence::{delimited, pair, preceded, separated_pair, tuple},
     IResult,
@@ -41,6 +40,19 @@ pub enum Error {
     /// Time offset had > u64::MAX seconds.
     #[error("Found time offset exceeding maximum seconds ({})", u64::MAX)]
     TooManySeconds,
+}
+
+/// Alias trait for parse errors.
+pub trait ParseError<'a>:
+    nom::error::ParseError<&'a [u8]>
+    + nom::error::FromExternalError<&'a [u8], Error>
+{
+}
+
+impl<'a, T> ParseError<'a> for T where
+    T: nom::error::ParseError<&'a [u8]>
+        + nom::error::FromExternalError<&'a [u8], Error>
+{
 }
 
 /// Parse a complete structured log as a big byte string.
@@ -86,7 +98,7 @@ pub fn parse_log(
 pub fn metadata_line_parser<'a, E>(
 ) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], (&[u8], Vec<u8>), E>
 where
-    E: ParseError<&'a [u8]> + nom::error::FromExternalError<&'a [u8], Error>,
+    E: ParseError<'a>,
 {
     separated_pair(
         is_not("\n\r \t:#"),
@@ -102,7 +114,7 @@ where
 pub fn record_parser<'a, E>(
 ) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Record, E>
 where
-    E: ParseError<&'a [u8]> + nom::error::FromExternalError<&'a [u8], Error>,
+    E: ParseError<'a>,
 {
     let kind_parser = delimited(
         is_a(" "),
@@ -141,7 +153,7 @@ pub fn value_parser<'a, E>(
     newline: TrailingNewline,
 ) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Vec<u8>, E>
 where
-    E: ParseError<&'a [u8]> + nom::error::FromExternalError<&'a [u8], Error>,
+    E: ParseError<'a>,
 {
     map(
         separated_list1(
@@ -246,7 +258,7 @@ fn unescape_value(input: &[u8], newline: TrailingNewline) -> Vec<u8> {
 pub fn seconds_parser<'a, E>(
 ) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Duration, E>
 where
-    E: ParseError<&'a [u8]> + nom::error::FromExternalError<&'a [u8], Error>,
+    E: ParseError<'a>,
 {
     map_res(
         pair(digit1, opt(preceded(tag("."), digit1))),
