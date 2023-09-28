@@ -1,7 +1,7 @@
 //! Manage parameters for `cron-wrapper`.
 
 use anyhow::anyhow;
-use clap::{Parser, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use cron_wrapper::command::Signal;
 use is_terminal::IsTerminal;
 use log::{log_enabled, Level::Trace};
@@ -16,8 +16,42 @@ use std::time::Duration;
 /// Parameters for `cron-wrapper`.
 #[derive(Debug, Parser)]
 #[clap(version, about)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct Params {
+    /// What action to take
+    #[command(subcommand)]
+    pub action: Action,
+
+    /// Whether or not to output in color
+    #[clap(long, default_value = "auto", value_name = "WHEN")]
+    pub color: ColorChoice,
+
+    /// Verbosity (may be repeated up to three times)
+    #[clap(short, long, action = clap::ArgAction::Count)]
+    pub verbose: u8,
+}
+
+impl Params {
+    /// Whether or not to output in color. Checks if stdout is a terminal.
+    pub fn color_choice(&self) -> termcolor::ColorChoice {
+        if self.color == ColorChoice::Auto && !io::stdout().is_terminal() {
+            termcolor::ColorChoice::Never
+        } else {
+            self.color.into()
+        }
+    }
+}
+
+/// The actions (subcommands).
+#[derive(Debug, Subcommand)]
+pub enum Action {
+    /// Run a command, only passing though output under certain circumstances.
+    Run(RunParams),
+}
+
+/// Run a command, only passing though output under certain circumstances.
+#[derive(Debug, Args)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct RunParams {
     /// The executable to run
     pub command: PathBuf,
 
@@ -104,14 +138,6 @@ pub struct Params {
     #[clap(long, default_value = "SIGTERM", value_name = "SIGNAL")]
     pub error_signal: OptionalSignal,
 
-    /// Whether or not to output in color
-    #[clap(long, default_value = "auto", value_name = "WHEN")]
-    pub color: ColorChoice,
-
-    /// Verbosity (may be repeated up to three times)
-    #[clap(short, long, action = clap::ArgAction::Count)]
-    pub verbose: u8,
-
     /// Hidden: how large a buffer to use
     #[clap(
         long,
@@ -122,7 +148,7 @@ pub struct Params {
     pub buffer_size: usize,
 }
 
-impl Params {
+impl RunParams {
     /// Pause output until a condition is met.
     pub const fn start_paused(&self) -> bool {
         self.on_error || self.on_fail
@@ -131,15 +157,6 @@ impl Params {
     /// Suppress normal output in favor of some other output.
     pub fn normal_output_enabled(&self) -> bool {
         !log_enabled!(Trace) && !self.log_stdout
-    }
-
-    /// Whether or not to output in color. Checks if stdout is a terminal.
-    pub fn color_choice(&self) -> termcolor::ColorChoice {
-        if self.color == ColorChoice::Auto && !io::stdout().is_terminal() {
-            termcolor::ColorChoice::Never
-        } else {
-            self.color.into()
-        }
     }
 }
 
@@ -266,23 +283,33 @@ mod tests {
     #[test]
     fn args_short_verbose_option() {
         let_assert!(
-            Ok(params) =
-                Params::try_parse_from(["cron-wrapper", "-v", "command"])
+            Ok(params) = Params::try_parse_from([
+                "cron-wrapper",
+                "-v",
+                "run",
+                "command"
+            ])
         );
-        check!(params.command == PathBuf::from("command"));
-        check!(params.args.len() == 0);
         check!(params.verbose == 1);
+        let_assert!(Action::Run(run_params) = params.action);
+        check!(run_params.command == PathBuf::from("command"));
+        check!(run_params.args.len() == 0);
     }
 
     #[test]
     fn args_2_short_verbose_option() {
         let_assert!(
-            Ok(params) =
-                Params::try_parse_from(["cron-wrapper", "-vv", "command"])
+            Ok(params) = Params::try_parse_from([
+                "cron-wrapper",
+                "-vv",
+                "run",
+                "command"
+            ])
         );
-        check!(params.command == PathBuf::from("command"));
-        check!(params.args.len() == 0);
         check!(params.verbose == 2);
+        let_assert!(Action::Run(run_params) = params.action);
+        check!(run_params.command == PathBuf::from("command"));
+        check!(run_params.args.len() == 0);
     }
 
     #[test]
@@ -315,13 +342,15 @@ mod tests {
             Ok(params) = Params::try_parse_from([
                 "cron-wrapper",
                 "--verbose",
+                "run",
                 "command",
                 "--foo",
             ])
         );
-        check!(params.command == PathBuf::from("command"));
-        check!(params.args == ["--foo"]);
         check!(params.verbose == 1);
+        let_assert!(Action::Run(run_params) = params.action);
+        check!(run_params.command == PathBuf::from("command"));
+        check!(run_params.args == ["--foo"]);
     }
 
     #[test]
@@ -330,13 +359,15 @@ mod tests {
             Ok(params) = Params::try_parse_from([
                 "cron-wrapper",
                 "--verbose",
+                "run",
                 "command",
                 "-f",
             ])
         );
-        check!(params.command == PathBuf::from("command"));
-        check!(params.args == ["-f"]);
         check!(params.verbose == 1);
+        let_assert!(Action::Run(run_params) = params.action);
+        check!(run_params.command == PathBuf::from("command"));
+        check!(run_params.args == ["-f"]);
     }
 
     #[test]
@@ -345,14 +376,16 @@ mod tests {
             Ok(params) = Params::try_parse_from([
                 "cron-wrapper",
                 "--verbose",
+                "run",
                 "command",
                 "-f",
                 "--foo",
             ])
         );
-        check!(params.command == PathBuf::from("command"));
-        check!(params.args == ["-f", "--foo"]);
         check!(params.verbose == 1);
+        let_assert!(Action::Run(run_params) = params.action);
+        check!(run_params.command == PathBuf::from("command"));
+        check!(run_params.args == ["-f", "--foo"]);
     }
 
     #[test]
@@ -362,14 +395,16 @@ mod tests {
             Ok(params) = Params::try_parse_from([
                 "cron-wrapper",
                 "--verbose",
+                "run",
                 "command",
                 "--on-error",
             ])
         );
-        check!(params.command == PathBuf::from("command"));
-        check!(params.args == ["--on-error"]);
         check!(params.verbose == 1);
-        check!(params.on_error == false);
+        let_assert!(Action::Run(run_params) = params.action);
+        check!(run_params.command == PathBuf::from("command"));
+        check!(run_params.args == ["--on-error"]);
+        check!(run_params.on_error == false);
     }
 
     #[test]
@@ -379,38 +414,52 @@ mod tests {
             Ok(params) = Params::try_parse_from([
                 "cron-wrapper",
                 "--verbose",
+                "run",
                 "command",
                 "--verbose",
             ])
         );
-        check!(params.command == PathBuf::from("command"));
-        check!(params.args == ["--verbose"]);
         check!(params.verbose == 1);
+        let_assert!(Action::Run(run_params) = params.action);
+        check!(run_params.command == PathBuf::from("command"));
+        check!(run_params.args == ["--verbose"]);
     }
 
     #[test]
     #[ignore] // FIXME clap doesn’t stop parsing after first non-flag.
     fn args_our_short_option_after_command() {
         let_assert!(
-            Ok(params) =
-                Params::try_parse_from(["cron-wrapper", "-v", "command", "-E"])
+            Ok(params) = Params::try_parse_from([
+                "cron-wrapper",
+                "-v",
+                "run",
+                "command",
+                "-E"
+            ])
         );
-        check!(params.command == PathBuf::from("command"));
-        check!(params.args == ["-E"]);
         check!(params.verbose == 1);
-        check!(params.on_error == false);
+        let_assert!(Action::Run(run_params) = params.action);
+        check!(run_params.command == PathBuf::from("command"));
+        check!(run_params.args == ["-E"]);
+        check!(run_params.on_error == false);
     }
 
     #[test]
     #[ignore] // FIXME clap doesn’t stop parsing after first non-flag.
     fn args_our_same_short_option_after_command() {
         let_assert!(
-            Ok(params) =
-                Params::try_parse_from(["cron-wrapper", "-v", "command", "-v"])
+            Ok(params) = Params::try_parse_from([
+                "cron-wrapper",
+                "-v",
+                "run",
+                "command",
+                "-v"
+            ])
         );
-        check!(params.command == PathBuf::from("command"));
-        check!(params.args == ["-v"]);
         check!(params.verbose == 1);
+        let_assert!(Action::Run(run_params) = params.action);
+        check!(run_params.command == PathBuf::from("command"));
+        check!(run_params.args == ["-v"]);
     }
 
     #[test]
@@ -419,6 +468,7 @@ mod tests {
             Ok(params) = Params::try_parse_from([
                 "cron-wrapper",
                 "-v",
+                "run",
                 "command",
                 "-abc",
                 "foo",
@@ -427,9 +477,10 @@ mod tests {
                 "--bar",
             ])
         );
-        check!(params.command == PathBuf::from("command"));
-        check!(params.args == ["-abc", "foo", "--", "-s", "--bar"]);
         check!(params.verbose == 1);
+        let_assert!(Action::Run(run_params) = params.action);
+        check!(run_params.command == PathBuf::from("command"));
+        check!(run_params.args == ["-abc", "foo", "--", "-s", "--bar"]);
     }
 
     #[test]
@@ -437,6 +488,7 @@ mod tests {
         let_assert!(
             Err(error) = Params::try_parse_from([
                 "cron-wrapper",
+                "run",
                 "--buffer-size",
                 "-2",
                 "command",
@@ -450,12 +502,14 @@ mod tests {
         let_assert!(
             Ok(params) = Params::try_parse_from([
                 "cron-wrapper",
+                "run",
                 "--idle-timeout",
                 "2",
                 "command",
             ])
         );
-        check!(params.idle_timeout == Some(Duration::from_secs(2)));
+        let_assert!(Action::Run(run_params) = params.action);
+        check!(run_params.idle_timeout == Some(Duration::from_secs(2)));
     }
 
     #[test]
@@ -463,12 +517,14 @@ mod tests {
         let_assert!(
             Ok(params) = Params::try_parse_from([
                 "cron-wrapper",
+                "run",
                 "--idle-timeout",
                 "2s",
                 "command",
             ])
         );
-        check!(params.idle_timeout == Some(Duration::from_secs(2)));
+        let_assert!(Action::Run(run_params) = params.action);
+        check!(run_params.idle_timeout == Some(Duration::from_secs(2)));
     }
 
     #[test]
@@ -476,12 +532,14 @@ mod tests {
         let_assert!(
             Ok(params) = Params::try_parse_from([
                 "cron-wrapper",
+                "run",
                 "--idle-timeout",
                 "2s 1ms",
                 "command",
             ])
         );
-        check!(params.idle_timeout == Some(Duration::from_millis(2001)));
+        let_assert!(Action::Run(run_params) = params.action);
+        check!(run_params.idle_timeout == Some(Duration::from_millis(2001)));
     }
 
     #[test]
@@ -489,12 +547,16 @@ mod tests {
         let_assert!(
             Ok(params) = Params::try_parse_from([
                 "cron-wrapper",
+                "run",
                 "--idle-timeout",
                 "2h",
                 "command",
             ])
         );
-        check!(params.idle_timeout == Some(Duration::from_secs(2 * 60 * 60)));
+        let_assert!(Action::Run(run_params) = params.action);
+        check!(
+            run_params.idle_timeout == Some(Duration::from_secs(2 * 60 * 60))
+        );
     }
 
     #[test]
@@ -502,6 +564,7 @@ mod tests {
         let_assert!(
             Err(error) = Params::try_parse_from([
                 "cron-wrapper",
+                "run",
                 "--idle-timeout",
                 "-2s",
                 "command",
@@ -516,12 +579,14 @@ mod tests {
         let_assert!(
             Ok(params) = Params::try_parse_from([
                 "cron-wrapper",
+                "run",
                 "--idle-timeout",
                 "0",
                 "command",
             ])
         );
-        check!(params.idle_timeout == Some(Duration::ZERO));
+        let_assert!(Action::Run(run_params) = params.action);
+        check!(run_params.idle_timeout == Some(Duration::ZERO));
     }
 
     #[test]
@@ -529,13 +594,16 @@ mod tests {
         let_assert!(
             Ok(params) = Params::try_parse_from([
                 "cron-wrapper",
+                "run",
                 "--idle-timeout",
                 &format!("{}ms", i32::MAX),
                 "command",
             ])
         );
+        let_assert!(Action::Run(run_params) = params.action);
         check!(
-            params.idle_timeout == Some(Duration::from_millis(i32::MAX as u64))
+            run_params.idle_timeout
+                == Some(Duration::from_millis(i32::MAX as u64))
         );
     }
 
@@ -544,6 +612,7 @@ mod tests {
         let_assert!(
             Err(error) = Params::try_parse_from([
                 "cron-wrapper",
+                "run",
                 "--idle-timeout",
                 "2s 2ms 2ns",
                 "command",

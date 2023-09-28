@@ -22,7 +22,7 @@ use std::rc::Rc;
 use termcolor::{Color, ColorSpec, WriteColor};
 
 mod params;
-use params::Params;
+use params::{Action, Params, RunParams};
 
 /// Wrapper to handle errors.
 ///
@@ -34,18 +34,30 @@ fn main() -> ! {
     }))
 }
 
-/// Initialize logging and start the child.
+/// Initialize logging and hand off to the action handler.
+///
+/// # Errors
+///
+/// This returns all errors to [`main()`] to be outputted nicely.
+fn cli(params: &Params) -> anyhow::Result<i32> {
+    init_logging(params)?;
+
+    match &params.action {
+        Action::Run(run_params) => action_run(params, run_params),
+    }
+}
+
+/// Handle the `run` action.
+///
+/// This is mostly a wrapper around [`start()`].
 ///
 /// # Errors
 ///
 /// This tries to log errors encountered after logging is started, and returns
 /// all errors to [`main()`] to be outputted nicely.
-fn cli(params: &Params) -> anyhow::Result<i32> {
-    init_logging(params)?;
-
+fn action_run(global: &Params, params: &RunParams) -> anyhow::Result<i32> {
     let mut job_logger = init_job_logger(params)?;
-
-    start(params, &mut job_logger).map_err(|error| {
+    start(global, params, &mut job_logger).map_err(|error| {
         if let Err(error2) = job_logger.log_wrapper_error(&error) {
             error!(
                 "Encountered error2 while logging another error. \
@@ -57,7 +69,11 @@ fn cli(params: &Params) -> anyhow::Result<i32> {
 }
 
 /// Start the child process.
-fn start(params: &Params, job_logger: &mut JobLogger) -> anyhow::Result<i32> {
+fn start(
+    global: &Params,
+    params: &RunParams,
+    job_logger: &mut JobLogger,
+) -> anyhow::Result<i32> {
     let command = Command {
         command: params.command.clone().into(),
         args: params.args.clone(),
@@ -71,7 +87,7 @@ fn start(params: &Params, job_logger: &mut JobLogger) -> anyhow::Result<i32> {
     job_logger.set_child(&child);
 
     let out =
-        Rc::new(RefCell::new(PausableWriter::stdout(params.color_choice())));
+        Rc::new(RefCell::new(PausableWriter::stdout(global.color_choice())));
     out.borrow_mut().set_paused(params.start_paused())?;
 
     if params.log_stdout {
@@ -198,7 +214,7 @@ fn new_logger_config() -> ConfigBuilder {
 ///
 /// This is _not_ responsible for creating the stdout [`Destination`] if
 /// `params.log_stdout` is `true`.
-fn init_job_logger(params: &Params) -> anyhow::Result<JobLogger> {
+fn init_job_logger(params: &RunParams) -> anyhow::Result<JobLogger> {
     if let Some(path) = &params.log_file {
         if path.as_os_str().is_empty() {
             // Clap actually prevents this, but let’s be sure.

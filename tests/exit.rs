@@ -16,7 +16,7 @@ fn to_pid(id: u32) -> Pid {
 
 #[test]
 fn child_success() {
-    let output = helpers::run(["true"]).output().unwrap();
+    let output = helpers::run(["run", "true"]).output().unwrap();
 
     check!(output.status.success());
     check!(output.stdout.as_bstr() == "");
@@ -25,7 +25,7 @@ fn child_success() {
 
 #[test]
 fn child_failure() {
-    let output = helpers::run(["false"]).output().unwrap();
+    let output = helpers::run(["run", "false"]).output().unwrap();
 
     check!(output.status.code() == Some(1));
     check!(output.stdout.as_bstr() == "");
@@ -35,7 +35,7 @@ fn child_failure() {
 #[test]
 fn child_sigterm() {
     let start = Instant::now();
-    let child = helpers::run(["sleep", "60"]).spawn().unwrap();
+    let child = helpers::run(["run", "sleep", "60"]).spawn().unwrap();
     kill(to_pid(child.id()), Signal::SIGTERM).unwrap();
     let output = child.wait_with_output().unwrap();
 

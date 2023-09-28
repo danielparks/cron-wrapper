@@ -5,7 +5,7 @@ mod helpers;
 
 #[test]
 fn only_out_unconditional() {
-    let output = helpers::run(["tests/fixtures/only_out.sh"])
+    let output = helpers::run(["run", "tests/fixtures/only_out.sh"])
         .output()
         .unwrap();
 
@@ -16,9 +16,10 @@ fn only_out_unconditional() {
 
 #[test]
 fn only_out_on_error() {
-    let output = helpers::run(["--on-error", "tests/fixtures/only_out.sh"])
-        .output()
-        .unwrap();
+    let output =
+        helpers::run(["run", "--on-error", "tests/fixtures/only_out.sh"])
+            .output()
+            .unwrap();
 
     check!(output.status.success());
     check!(output.stdout.as_bstr() == "");
@@ -27,7 +28,7 @@ fn only_out_on_error() {
 
 #[test]
 fn only_out_fail_unconditional() {
-    let output = helpers::run(["tests/fixtures/only_out_fail.sh"])
+    let output = helpers::run(["run", "tests/fixtures/only_out_fail.sh"])
         .output()
         .unwrap();
 
@@ -39,7 +40,7 @@ fn only_out_fail_unconditional() {
 #[test]
 fn only_out_fail_on_error() {
     let output =
-        helpers::run(["--on-error", "tests/fixtures/only_out_fail.sh"])
+        helpers::run(["run", "--on-error", "tests/fixtures/only_out_fail.sh"])
             .output()
             .unwrap();
 
@@ -50,9 +51,10 @@ fn only_out_fail_on_error() {
 
 #[test]
 fn only_out_fail_on_fail() {
-    let output = helpers::run(["--on-fail", "tests/fixtures/only_out_fail.sh"])
-        .output()
-        .unwrap();
+    let output =
+        helpers::run(["run", "--on-fail", "tests/fixtures/only_out_fail.sh"])
+            .output()
+            .unwrap();
 
     check!(output.status.code() == Some(1));
     check!(output.stdout.as_bstr() == "out\n");
@@ -61,7 +63,7 @@ fn only_out_fail_on_fail() {
 
 #[test]
 fn midline_sleep_all() {
-    let output = helpers::run(["tests/fixtures/midline_sleep.sh"])
+    let output = helpers::run(["run", "tests/fixtures/midline_sleep.sh"])
         .output()
         .unwrap();
 
@@ -72,7 +74,7 @@ fn midline_sleep_all() {
 
 #[test]
 fn mixed_output_unconditional() {
-    let output = helpers::run(["tests/fixtures/mixed_output.sh"])
+    let output = helpers::run(["run", "tests/fixtures/mixed_output.sh"])
         .output()
         .unwrap();
 
@@ -83,9 +85,10 @@ fn mixed_output_unconditional() {
 
 #[test]
 fn mixed_output_on_error() {
-    let output = helpers::run(["--on-error", "tests/fixtures/mixed_output.sh"])
-        .output()
-        .unwrap();
+    let output =
+        helpers::run(["run", "--on-error", "tests/fixtures/mixed_output.sh"])
+            .output()
+            .unwrap();
 
     check!(output.status.success());
     check!(output.stdout.as_bstr() == "111aaa333\nbbb\n");
@@ -94,10 +97,14 @@ fn mixed_output_on_error() {
 
 #[test]
 fn mixed_output_unconditional_color() {
-    let output =
-        helpers::run(["--color", "always", "tests/fixtures/mixed_output.sh"])
-            .output()
-            .unwrap();
+    let output = helpers::run([
+        "--color",
+        "always",
+        "run",
+        "tests/fixtures/mixed_output.sh",
+    ])
+    .output()
+    .unwrap();
 
     check!(output.status.success());
     check!(output.stdout.as_bstr() == "111\x1b[0m\x1b[38;5;9maaa\x1b[0m333\n\x1b[0m\x1b[38;5;9mbbb\n\x1b[0m");
@@ -109,6 +116,7 @@ fn mixed_output_on_fail_color() {
     let output = helpers::run([
         "--color",
         "always",
+        "run",
         "--on-fail",
         "tests/fixtures/mixed_output.sh",
         "1",
@@ -123,7 +131,7 @@ fn mixed_output_on_fail_color() {
 
 #[test]
 fn invalid_utf8() {
-    let output = helpers::run(["tests/fixtures/invalid_utf8.sh"])
+    let output = helpers::run(["run", "tests/fixtures/invalid_utf8.sh"])
         .output()
         .unwrap();
 
