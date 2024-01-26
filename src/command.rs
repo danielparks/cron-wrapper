@@ -499,9 +499,21 @@ impl Command {
     }
 
     /// Get the command line to run escaped for the shell.
+    ///
+    /// Note that this might return a literal \0 in its return if it is present
+    /// in the command or its arguments.
+    ///
+    /// # Panics
+    ///
+    /// This should not panic with shlex version 1.3.0. However, future version
+    /// of shlex may introduce new ways of quoting that may fail.
     #[must_use]
     pub fn command_line_sh(&self) -> Vec<u8> {
-        shlex::bytes::join(self.command_line().map(|word| word.as_bytes()))
+        // This cannot fail in shlex 1.3.0:
+        shlex::bytes::Quoter::new()
+            .allow_nul(true)
+            .join(self.command_line().map(|word| word.as_bytes()))
+            .unwrap()
     }
 }
 
