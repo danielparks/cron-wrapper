@@ -1,11 +1,10 @@
-name: PR checks
+name: Update cache
 
 on:
   workflow_dispatch:
   push:
     branches:
       - $default-branch
-  pull_request:
 
 jobs:
   test:
