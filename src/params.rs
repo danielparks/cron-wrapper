@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 use termcolor::StandardStream;
+use termcolor::{Color, ColorSpec};
 
 /// Parameters for `cron-wrapper`.
 #[derive(Debug, Parser)]
@@ -280,6 +281,14 @@ impl From<OptionalSignal> for Option<Signal> {
             OptionalSignal::Some(signal) => Some(signal),
         }
     }
+}
+
+/// Returns color used to output errors.
+pub fn error_color() -> ColorSpec {
+    let mut color = ColorSpec::new();
+    color.set_fg(Some(Color::Red));
+    color.set_intense(true);
+    color
 }
 
 /// Whether or not to output in color
