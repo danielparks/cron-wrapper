@@ -20,7 +20,8 @@ where
     let marker = directory.path().join("marker");
     check!(!marker.is_file(), "marker should not exist yet");
 
-    let output = helpers::run(args)
+    let output = helpers::run(["run"])
+        .args(args)
         .arg("tests/fixtures/sleep_touch.sh")
         .arg(&marker)
         .output()
