@@ -12,6 +12,7 @@ use std::io;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
+use termcolor::StandardStream;
 
 /// Parameters for `cron-wrapper`.
 #[derive(Debug, Parser)]
@@ -31,9 +32,34 @@ pub struct Params {
 }
 
 impl Params {
-    /// Whether or not to output in color. Checks if stdout is a terminal.
-    pub fn color_choice(&self) -> termcolor::ColorChoice {
-        if self.color == ColorChoice::Auto && !io::stdout().is_terminal() {
+    /// Get stream to use for standard output.
+    pub fn out_stream(&self) -> StandardStream {
+        StandardStream::stdout(self.out_color_choice())
+    }
+
+    /// Get stream to use for errors.
+    pub fn err_stream(&self) -> StandardStream {
+        StandardStream::stderr(self.err_color_choice())
+    }
+
+    /// Whether or not to output on standard output in color.
+    pub fn out_color_choice(&self) -> termcolor::ColorChoice {
+        self.color_choice(&io::stdout())
+    }
+
+    /// Whether or not to output on standard error in color.
+    pub fn err_color_choice(&self) -> termcolor::ColorChoice {
+        self.color_choice(&io::stderr())
+    }
+
+    /// Whether or not to output on a stream in color.
+    ///
+    /// Checks if passed stream is a terminal.
+    pub fn color_choice<T: IsTerminal>(
+        &self,
+        stream: &T,
+    ) -> termcolor::ColorChoice {
+        if self.color == ColorChoice::Auto && !stream.is_terminal() {
             termcolor::ColorChoice::Never
         } else {
             self.color.into()
@@ -46,6 +72,9 @@ impl Params {
 pub enum Action {
     /// Run a command, only passing though output under certain circumstances.
     Run(RunParams),
+
+    /// Replay a log.
+    Replay(ReplayParams),
 }
 
 /// Run a command, only passing though output under certain circumstances.
@@ -158,6 +187,18 @@ impl RunParams {
     pub fn normal_output_enabled(&self) -> bool {
         !log_enabled!(Trace) && !self.log_stdout
     }
+}
+
+/// Replay a log.
+#[derive(Debug, Args)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct ReplayParams {
+    /// The log file to replay
+    pub log_file: PathBuf,
+
+    /// Output metadata before actual output.
+    #[clap(short, long)]
+    pub metadata: bool,
 }
 
 /// Parse a duration from a parameter.

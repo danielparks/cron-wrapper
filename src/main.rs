@@ -3,11 +3,12 @@
 // Lint configuration in Cargo.toml isn’t supported by cargo-geiger.
 #![forbid(unsafe_code)]
 
-use anyhow::{bail, Context};
+use anyhow::{anyhow, bail, Context};
 use bstr::ByteSlice;
 use clap::Parser;
 use cron_wrapper::command::{Command, Event};
-use cron_wrapper::job_logger::{Destination, JobLogger};
+use cron_wrapper::job_logger::parser::parse_log;
+use cron_wrapper::job_logger::{Destination, JobLogger, Kind};
 use cron_wrapper::pause_writer::PausableWriter;
 use log::{debug, error, info};
 use simplelog::{
@@ -19,17 +20,22 @@ use std::fs;
 use std::io::Write;
 use std::process;
 use std::rc::Rc;
+use std::str;
 use termcolor::{Color, ColorSpec, WriteColor};
 
 mod params;
-use params::{Action, Params, RunParams};
+use params::{Action, Params, ReplayParams, RunParams};
 
 /// Wrapper to handle errors.
 ///
 /// See [`cli()`].
 fn main() -> ! {
-    process::exit(cli(&Params::parse()).unwrap_or_else(|error| {
-        eprintln!("Error: {error:#}");
+    let params = Params::parse();
+    process::exit(cli(&params).unwrap_or_else(|error| {
+        let mut err = params.err_stream();
+        err.set_color(&error_color()).unwrap();
+        writeln!(err, "Error: {error:#}").unwrap();
+        err.reset().unwrap();
         1
     }))
 }
@@ -44,6 +50,7 @@ fn cli(params: &Params) -> anyhow::Result<i32> {
 
     match &params.action {
         Action::Run(run_params) => action_run(params, run_params),
+        Action::Replay(replay_params) => action_replay(params, replay_params),
     }
 }
 
@@ -86,17 +93,16 @@ fn start(
     let mut child = command.spawn()?;
     job_logger.set_child(&child);
 
-    let out =
-        Rc::new(RefCell::new(PausableWriter::stdout(global.color_choice())));
+    let out = Rc::new(RefCell::new(PausableWriter::stdout(
+        global.out_color_choice(),
+    )));
     out.borrow_mut().set_paused(params.start_paused())?;
 
     if params.log_stdout {
         job_logger.add_destination(Destination::ColorStream(out.clone()));
     }
 
-    let mut err_color = ColorSpec::new();
-    err_color.set_fg(Some(Color::Red));
-    err_color.set_intense(true);
+    let err_color = error_color();
 
     while let Some(event) = child.next_event() {
         job_logger.log_event(&event)?;
@@ -165,6 +171,93 @@ fn start(
     }
 
     unreachable!("should have exited when child did");
+}
+
+/// Handle the `replay` action.
+///
+/// # Errors
+///
+/// This tries to log errors encountered after logging is started, and returns
+/// all errors to [`main()`] to be outputted nicely.
+fn action_replay(
+    global: &Params,
+    params: &ReplayParams,
+) -> anyhow::Result<i32> {
+    let mut out = global.out_stream();
+    let mut err = global.err_stream();
+    let err_color = error_color();
+
+    let log_file = fs::read(&params.log_file)?;
+    let (metadata, records) = parse_log(&log_file).map_err(collapse_error)?;
+
+    if params.metadata {
+        for (key, value) in metadata {
+            writeln!(out, "{}: {:?}", key.as_bstr(), value.as_bstr())?;
+        }
+        writeln!(out)?;
+    }
+
+    let mut exit_code: Option<i32> = None;
+
+    for record in records {
+        match record.kind {
+            Kind::Stdout => {
+                out.write_all(&record.value)?;
+                out.flush()?;
+            }
+            Kind::Stderr => {
+                err.set_color(&err_color)?;
+                err.write_all(&record.value)?;
+                err.reset()?;
+                err.flush()?;
+            }
+            Kind::Exit => {
+                // Keep reading so we don’t accidentally hide output if the
+                // logger has some kind of bug.
+                if exit_code.is_some() {
+                    bail!("Multiple exit records found.");
+                }
+                exit_code = Some(str::from_utf8(&record.value)?.parse()?);
+            }
+            Kind::Error => {
+                err.set_color(&err_color)?;
+                err.write_all(b"Error: ")?;
+                err.write_all(&record.value)?;
+                err.reset()?;
+                err.write_all(b"\n")?;
+                err.flush()?;
+            }
+            Kind::WrapperError => {
+                err.set_color(&err_color)?;
+                err.write_all(b"Wrapper error: ")?;
+                err.write_all(&record.value)?;
+                err.reset()?;
+                err.write_all(b"\n")?;
+                err.flush()?;
+            }
+        }
+    }
+
+    Ok(exit_code.unwrap_or(0))
+}
+
+/// Collapse a nom error into something that does not borrow the input.
+fn collapse_error(error: nom::Err<nom::error::Error<&[u8]>>) -> anyhow::Error {
+    match error {
+        nom::Err::Incomplete(_) => anyhow!("unexpected EOF"),
+        nom::Err::Error(e) | nom::Err::Failure(e) => {
+            // FIXME: This gives terrible errors.
+            anyhow!("Parse error {:?} at {:?}", e.code, e.input.as_bstr())
+        }
+    }
+}
+
+/// Returns color used to output errors.
+fn error_color() -> ColorSpec {
+    let mut color = ColorSpec::new();
+    color.set_fg(Some(Color::Red));
+    color.set_intense(true);
+    color
 }
 
 /// Initialize logging for cron-wrapper itself. This does not deal with logs
