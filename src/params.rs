@@ -105,6 +105,14 @@ pub struct RunParams {
     #[clap(short = 'X', long)]
     pub show_fail_code: bool,
 
+    /// Combine stdout and stderr output
+    ///
+    /// Separate streams can sometimes be read out of order when writes occur
+    /// very close together. Combining the streams solves those problems, but
+    /// prevents us from determining what is on stdout and what is on stderr.
+    #[clap(short = 'C', long)]
+    pub combine_output: bool,
+
     /// Store structured log files in DIRECTORY
     ///
     /// Log files will be named YYYY-mm-ddTHH:MM:SS-ZZ:ZZ.$command.$pid.log. For

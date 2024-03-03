@@ -35,7 +35,7 @@ pub fn replay(global: &Params, params: &ReplayParams) -> anyhow::Result<i32> {
 
     for record in records {
         match record.kind {
-            Kind::Stdout => {
+            Kind::Stdout | Kind::Combined => {
                 out.write_all(&record.value)?;
                 out.flush()?;
             }

@@ -43,6 +43,7 @@ fn start(
     let command = Command {
         command: params.command.clone().into(),
         args: params.args.clone(),
+        combine_streams: params.combine_output,
         run_timeout: params.run_timeout.into(),
         idle_timeout: params.idle_timeout.into(),
         buffer_size: params.buffer_size,
@@ -66,7 +67,7 @@ fn start(
     while let Some(event) = child.next_event() {
         job_logger.log_event(&event)?;
         match event {
-            Event::Stdout(output) => {
+            Event::Stdout(output) | Event::Combined(output) => {
                 if !output.is_empty() && params.normal_output_enabled() {
                     let mut out = out.borrow_mut();
                     out.write_all(output)?;

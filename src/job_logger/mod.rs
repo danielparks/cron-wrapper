@@ -23,6 +23,9 @@ pub use logger::*;
 /// [`Event::Error`]: crate::command::Event::Error
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
+    /// Output on the child process’s combined stdout + stderr stream.
+    Combined,
+
     /// Output on the child process’s stdout.
     Stdout,
 
@@ -44,6 +47,7 @@ impl Kind {
     #[must_use]
     pub const fn as_bytes(self) -> &'static [u8] {
         match self {
+            Self::Combined => b"com",
             Self::Stdout => b"out",
             Self::Stderr => b"err",
             Self::Exit => b"exit",
@@ -52,10 +56,10 @@ impl Kind {
         }
     }
 
-    /// Is this an output (stdout or stderr)?
+    /// Is this an output (combined, stdout, or stderr)?
     #[must_use]
     pub const fn is_output(self) -> bool {
-        matches!(self, Self::Stdout | Self::Stderr)
+        matches!(self, Self::Combined | Self::Stdout | Self::Stderr)
     }
 
     /// Is this an error (stderr, error, wrapper-error)?

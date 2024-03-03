@@ -257,6 +257,9 @@ impl JobLogger {
     /// This will return an error if it can’t write to the log.
     pub fn log_event(&mut self, event: &Event) -> Result<(), Error> {
         match &event {
+            Event::Combined(output) => {
+                self.write_record(Kind::Combined, output)
+            }
             Event::Stdout(output) => self.write_record(Kind::Stdout, output),
             Event::Stderr(output) => self.write_record(Kind::Stderr, output),
             Event::Exit(_) => {
