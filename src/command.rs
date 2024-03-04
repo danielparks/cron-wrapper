@@ -18,7 +18,6 @@ use os_pipe::{pipe, PipeReader};
 use popol::{interest, set_nonblocking};
 use std::cmp;
 use std::collections::VecDeque;
-use std::convert::Into;
 use std::ffi::OsString;
 use std::fmt;
 use std::io::{self, Read};
@@ -1050,7 +1049,7 @@ mod tests {
     use super::*;
     use assert2::{assert, check, let_assert};
     use std::thread;
-    use std::time::{Duration, Instant};
+    use std::time::Instant;
 
     #[test]
     fn echo_ok() {

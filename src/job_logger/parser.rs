@@ -13,7 +13,6 @@ use nom::{
     sequence::{delimited, pair, preceded, separated_pair, tuple},
     IResult,
 };
-use std::option::Option;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -37,7 +36,7 @@ pub enum Error {
     #[error("Found time offset with smaller than nanosecond precision")]
     SubnanosecondPrecision,
 
-    /// Time offset had > u64::MAX seconds.
+    /// Time offset had > `u64::MAX` seconds.
     #[error("Found time offset exceeding maximum seconds ({})", u64::MAX)]
     TooManySeconds,
 }
