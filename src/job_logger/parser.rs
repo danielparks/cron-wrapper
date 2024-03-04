@@ -119,6 +119,7 @@ where
     let kind_parser = delimited(
         is_a(" "),
         alt((
+            value(Kind::Combined, tag("com")),
             value(Kind::Stdout, tag("out")),
             value(Kind::Stderr, tag("err")),
             value(Kind::Exit, tag("exit")),

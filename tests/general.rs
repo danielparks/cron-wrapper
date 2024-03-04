@@ -130,6 +130,38 @@ fn mixed_output_on_fail_color() {
 }
 
 #[test]
+fn combined_output() {
+    let output = helpers::run([
+        "run",
+        "--combine-output",
+        "tests/fixtures/mixed_output.sh",
+    ])
+    .output()
+    .unwrap();
+
+    check!(output.status.success());
+    check!(output.stdout.as_bstr() == "111aaa333\nbbb\n");
+    check!(output.stderr.as_bstr() == "");
+}
+
+#[test]
+fn combined_output_unconditional_color() {
+    let output = helpers::run([
+        "--color",
+        "always",
+        "run",
+        "--combine-output",
+        "tests/fixtures/mixed_output.sh",
+    ])
+    .output()
+    .unwrap();
+
+    check!(output.status.success());
+    check!(output.stdout.as_bstr() == "111aaa333\nbbb\n");
+    check!(output.stderr.as_bstr() == "");
+}
+
+#[test]
 fn invalid_utf8() {
     let output = helpers::run(["run", "tests/fixtures/invalid_utf8.sh"])
         .output()

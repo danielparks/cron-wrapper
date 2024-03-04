@@ -14,7 +14,8 @@
 use crate::timeout::Timeout;
 use bstr::ByteSlice;
 use log::{debug, error, info, trace};
-use popol::set_nonblocking;
+use os_pipe::{pipe, PipeReader};
+use popol::{interest, set_nonblocking};
 use std::cmp;
 use std::collections::VecDeque;
 use std::convert::Into;
@@ -55,6 +56,9 @@ const POLL_MAX_TIMEOUT: Timeout = Timeout::Future {
 /// Used to indicate either stderr or stdout on the child process.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum StreamType {
+    /// Child’s combined output stream (stdout and stderr together).
+    Combined,
+
     /// Child’s standard output stream.
     Stdout,
 
@@ -65,6 +69,7 @@ pub enum StreamType {
 impl fmt::Display for StreamType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Combined => write!(f, "combined"),
             Self::Stdout => write!(f, "stdout"),
             Self::Stderr => write!(f, "stderr"),
         }
@@ -74,6 +79,14 @@ impl fmt::Display for StreamType {
 /// Errors that running a command might raise.
 #[derive(Debug, Error)]
 pub enum Error {
+    /// Error originating from [`os_pipe::pipe()`].
+    #[error("Could not create pipe: {0}")]
+    Pipe(io::Error),
+
+    /// Error originating from [`os_pipe::PipeWriter::try_clone()`].
+    #[error("Could not duplicate pipe: {0}")]
+    Dup(io::Error),
+
     /// Error originating specifically from [`process::Command::spawn()`] (not
     /// all of [`crate::command::Command::spawn()`]).
     #[error("Could not run command {command:?}: {error}")]
@@ -137,6 +150,13 @@ pub struct Command {
     /// Arguments to pass, not including the executable’s name.
     pub args: Vec<OsString>,
 
+    /// Whether or not to combine stdout and stderr into one stream.
+    ///
+    /// Separate streams can sometimes be read out of order when writes occur
+    /// very close together. Combining the streams solves those problems, but
+    /// prevents us from determining what is on stdout and what is on stderr.
+    pub combine_streams: bool,
+
     /// Timeout for the overall command run.
     pub run_timeout: Timeout,
 
@@ -172,6 +192,12 @@ enum State {
 /// A child process did something.
 #[derive(Debug)]
 pub enum Event<'a> {
+    /// There was output on the child’s combined (stdout + stderr) stream.
+    ///
+    /// Note that the byte slice in this event is only valid until the next call
+    /// to [`Child::next_event()`].
+    Combined(&'a [u8]),
+
     /// There was output on the child’s stdout.
     ///
     /// Note that the byte slice in this event is only valid until the next call
@@ -195,6 +221,7 @@ impl<'a> Event<'a> {
     /// Make the correct type of read event given a [`StreamType`].
     const fn make_read(stream: StreamType, output: &'a [u8]) -> Self {
         match stream {
+            StreamType::Combined => Self::Combined(output),
             StreamType::Stdout => Self::Stdout(output),
             StreamType::Stderr => Self::Stderr(output),
         }
@@ -242,18 +269,32 @@ pub struct Child {
     /// Internal events returned by polling.
     events: VecDeque<popol::Event<StreamType>>,
 
-    /// The child’s stdout stream.
-    stdout: process::ChildStdout,
-
-    /// The child’s stderr stream.
-    stderr: process::ChildStderr,
+    /// The child’s output stream(s).
+    streams: ChildOutput,
 
     /// The current state for [`Child::next_event()`].
     state: State,
 
     /// The buffer used to store the latest read from an child’s output stream.
-    /// This is referenced from [`Event::Stdout`] and [`Event::Stderr`].
+    /// This is referenced from [`Event::Combined`], [`Event::Stdout`], and
+    /// [`Event::Stderr`].
     buffer: Vec<u8>,
+}
+
+/// Output streams for a [`Child`].
+#[derive(Debug)]
+enum ChildOutput {
+    /// stdout and stderr are combined.
+    Combined(PipeReader),
+
+    /// Separate stdout and stderr.
+    Separate {
+        /// The stdout stream for the child.
+        stdout: PipeReader,
+
+        /// The stderr stream for the child.
+        stderr: PipeReader,
+    },
 }
 
 impl Command {
@@ -279,6 +320,7 @@ impl Command {
         Self {
             command: command.into(),
             args: args.into_iter().map(Into::into).collect(),
+            combine_streams: false,
             run_timeout: Timeout::Never,
             idle_timeout: Timeout::Never,
             buffer_size: 4096,
@@ -306,6 +348,31 @@ impl Command {
         I: IntoIterator<Item = S>,
     {
         self.args = args.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Set whether or combine stdout and stderr streams
+    ///
+    /// Separate streams can sometimes be read out of order when writes occur
+    /// very close together. Combining the streams solves those problems, but
+    /// prevents us from determining what is on stdout and what is on stderr.
+    ///
+    /// ```rust
+    /// use assert2::{assert, let_assert};
+    /// use cron_wrapper::command::{Command, Event};
+    ///
+    /// let mut child = Command::new("/bin/echo", [])
+    ///     .args(["hello", "world"])
+    ///     .combine_streams(true)
+    ///     .spawn()
+    ///     .unwrap();
+    ///
+    /// // Depending on timing, the first event may only get part of the output.
+    /// let_assert!(Some(Event::Combined(bytes)) = child.next_event());
+    /// assert!(b"hello world\n".starts_with(bytes));
+    /// ```
+    pub fn combine_streams(&mut self, combine: bool) -> &mut Self {
+        self.combine_streams = combine;
         self
     }
 
@@ -446,36 +513,52 @@ impl Command {
         let run_timeout = self.run_timeout.start();
         let idle_timeout = self.idle_timeout.clone();
 
+        let mut sources = popol::Sources::with_capacity(2);
+
         info!("Start: {}", self.command_line_sh().as_bstr());
         debug!("run timeout {run_timeout}, idle timeout {idle_timeout}");
 
-        let mut process = process::Command::new(&command)
-            .args(args)
-            .stdout(process::Stdio::piped())
-            .stderr(process::Stdio::piped())
+        let mut child = process::Command::new(&command);
+        child.args(args);
+
+        // Configure child output.
+        let streams = if self.combine_streams {
+            let (read, write) = pipe().map_err(Error::Pipe)?;
+            child.stderr(write.try_clone().map_err(Error::Dup)?);
+            child.stdout(write);
+
+            set_nonblocking(&read, true)
+                .expect("combined pipe cannot be set to non-blocking");
+            sources.register(StreamType::Combined, &read, interest::READ);
+
+            ChildOutput::Combined(read)
+        } else {
+            let (stdout, write) = pipe().map_err(Error::Pipe)?;
+            child.stdout(write);
+            set_nonblocking(&stdout, true)
+                .expect("stdout pipe cannot be set to non-blocking");
+            sources.register(StreamType::Stdout, &stdout, interest::READ);
+
+            let (stderr, write) = pipe().map_err(Error::Pipe)?;
+            child.stderr(write);
+            set_nonblocking(&stderr, true)
+                .expect("stderr pipe cannot be set to non-blocking");
+            sources.register(StreamType::Stderr, &stderr, interest::READ);
+
+            ChildOutput::Separate { stdout, stderr }
+        };
+
+        let process = child
             .spawn()
             .map_err(|error| Error::Spawn { command, error })?;
 
         debug!("child process id: {}", process.id());
 
-        let mut sources = popol::Sources::with_capacity(2);
-
-        let stdout = process.stdout.take().expect("process.stdout is None");
-        set_nonblocking(&stdout, true)
-            .expect("child stdout cannot be set to non-blocking");
-        sources.register(StreamType::Stdout, &stdout, popol::interest::READ);
-
-        let stderr = process.stderr.take().expect("process.stderr is None");
-        set_nonblocking(&stderr, true)
-            .expect("child stderr cannot be set to non-blocking");
-        sources.register(StreamType::Stderr, &stderr, popol::interest::READ);
-
         Ok(Child {
             process,
             run_timeout,
             idle_timeout,
-            stdout,
-            stderr,
+            streams,
             sources,
             events: VecDeque::with_capacity(2),
             state: State::Polling,
@@ -834,7 +917,7 @@ impl Child {
         Ok(())
     }
 
-    /// Read from the child’s stdout or stderr.
+    /// Read from the child’s output streams.
     ///
     /// Fills `self.buffer` and returns the number of bytes written or an error.
     ///
@@ -846,10 +929,7 @@ impl Child {
 
         // Loop is only for the case where the read() get EINTR.
         loop {
-            let result = match stream {
-                StreamType::Stdout => self.stdout.read(&mut self.buffer),
-                StreamType::Stderr => self.stderr.read(&mut self.buffer),
-            };
+            let result = self.streams.read(stream, &mut self.buffer);
 
             return match result {
                 Ok(count) => {
@@ -883,6 +963,42 @@ impl Child {
                 }
                 Err(error) => Err(Error::Read { error, stream }),
             };
+        }
+    }
+}
+
+impl ChildOutput {
+    /// Read data from the appropriate stream based on the key ([`StreamType`])
+    /// returned from [`Child::poll()`].
+    ///
+    /// # Errors
+    ///
+    /// This may return [`io::Error`] from the actual read.
+    ///
+    /// # Panics
+    ///
+    /// This will panic if `which` doesn’t match the streams available for the
+    /// child. For example, if [`Child::poll()`] somehow returns
+    /// [`StreamType::Combined`] despite the self being
+    /// [`ChildOutput::Separate`], this will panic.
+    fn read(
+        &mut self,
+        which: StreamType,
+        buffer: &mut [u8],
+    ) -> io::Result<usize> {
+        match (which, self) {
+            (StreamType::Combined, Self::Combined(output)) => {
+                output.read(buffer)
+            }
+            (StreamType::Stdout, Self::Separate { ref mut stdout, .. }) => {
+                stdout.read(buffer)
+            }
+            (StreamType::Stderr, Self::Separate { ref mut stderr, .. }) => {
+                stderr.read(buffer)
+            }
+            (which, _) => {
+                panic!("poll() returned unexpected stream type {which:?}")
+            }
         }
     }
 }
@@ -944,6 +1060,9 @@ mod tests {
         while let Some(event) = child.next_event() {
             #[allow(clippy::arithmetic_side_effects)] // See assert
             match event {
+                Event::Combined(output) => {
+                    panic!("unexpected combined output: {output:?}");
+                }
                 Event::Stdout(output) => {
                     check!(output == b"ok\n");
                     assert!(count < 10, "expected only 1 line of output");
@@ -973,6 +1092,9 @@ mod tests {
 
         while let Some(event) = child.next_event() {
             match event {
+                Event::Combined(output) => {
+                    panic!("unexpected combined output: {output:?}");
+                }
                 Event::Stdout(output) => {
                     panic!("unexpected stdout: {output:?}");
                 }
@@ -1003,6 +1125,9 @@ mod tests {
         while let Some(event) = child.next_event() {
             #[allow(clippy::arithmetic_side_effects)] // See count += 1
             match event {
+                Event::Combined(output) => {
+                    panic!("unexpected combined output: {output:?}");
+                }
                 Event::Stdout(output) => {
                     panic!("unexpected stdout: {output:?}");
                 }
@@ -1041,6 +1166,9 @@ mod tests {
         while let Some(event) = child.next_event() {
             #[allow(clippy::arithmetic_side_effects)] // See assert
             match event {
+                Event::Combined(output) => {
+                    panic!("unexpected combined output: {output:?}");
+                }
                 Event::Stdout(output) => {
                     panic!("unexpected stdout: {output:?}");
                 }
