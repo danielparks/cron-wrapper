@@ -5,7 +5,6 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use cron_wrapper::command::Signal;
 use is_terminal::IsTerminal;
 use log::{log_enabled, Level::Trace};
-use std::convert::Into;
 use std::ffi::OsString;
 use std::fmt;
 use std::io;
@@ -335,8 +334,6 @@ mod tests {
     use clap::error::{
         ContextKind::InvalidArg, ContextValue::String, ErrorKind,
     };
-    use std::path::PathBuf;
-    use std::time::Duration;
 
     #[test]
     fn args_short_verbose_option() {

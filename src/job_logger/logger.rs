@@ -764,10 +764,8 @@ mod tests {
     use assert2::check;
     use bstr::ByteSlice;
     use regex::{bytes, Regex};
-    use std::cell::RefCell;
     use std::os::unix::process::ExitStatusExt;
     use std::process::ExitStatus;
-    use std::rc::Rc;
     use std::time::Duration;
     use tempfile::tempdir;
 

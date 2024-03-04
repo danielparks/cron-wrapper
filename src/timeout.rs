@@ -291,7 +291,6 @@ mod tests {
 
     use super::*;
     use assert2::check;
-    use std::time::Duration;
 
     const fn future_timeout(microseconds: u64) -> Timeout {
         Timeout::Future {
