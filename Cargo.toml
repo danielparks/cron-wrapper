@@ -15,9 +15,10 @@ rust-version = "1.65"
 
 [dependencies]
 anyhow = "1.0.44"
-bstr = { version = "1.1.0", default-features = false }
+bstr = { version = "1.1.0", default-features = false, features = ["alloc"] }
 clap = { version = "4.0.18", features = ["derive"] }
 duration-str = { version = "0.5.0", default-features = false }
+fd-lock = "4.0.2"
 is-terminal = "0.4.7"
 log = "0.4.14"
 nix = { version = "0.26.1", default-features = false, features = ["signal", "process"] }
@@ -84,3 +85,6 @@ let_underscore_untyped = "allow"
 manual_string_new = "allow"
 map_unwrap_or = "allow"
 module_name_repetitions = "allow"
+
+# Nursery exceptions
+option_if_let_else = "allow"
