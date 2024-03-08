@@ -175,6 +175,14 @@ pub struct RunParams {
     #[clap(long, default_value = "SIGTERM", value_name = "SIGNAL")]
     pub error_signal: OptionalSignal,
 
+    /// Ensure that only one copy of this command is running at once.
+    ///
+    /// Specifies the lock file to use to ensure that only one copy of this
+    /// command is running at once. If a process is already using the file, the
+    /// file contents will be printed and we will immediately exit.
+    #[clap(long, value_name = "FILE")]
+    pub lock_file: Option<PathBuf>,
+
     /// Hidden: how large a buffer to use
     #[clap(
         long,

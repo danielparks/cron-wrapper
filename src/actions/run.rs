@@ -5,6 +5,7 @@ use anyhow::{bail, Context};
 use bstr::ByteSlice;
 use cron_wrapper::command::{Command, Event};
 use cron_wrapper::job_logger::{Destination, JobLogger};
+use cron_wrapper::lock::try_lock_standard;
 use cron_wrapper::pause_writer::PausableWriter;
 use log::{debug, error, info};
 use std::cell::RefCell;
@@ -22,19 +23,33 @@ use termcolor::WriteColor;
 /// This tries to log errors encountered after logging is started, and returns
 /// all errors to [`main()`] to be outputted nicely.
 pub fn run(global: &Params, params: &RunParams) -> anyhow::Result<i32> {
-    let mut job_logger = init_job_logger(params)?;
-    start(global, params, &mut job_logger).map_err(|error| {
-        if let Err(error2) = job_logger.log_wrapper_error(&error) {
-            error!(
-                "Encountered error2 while logging another error. \
-                Error2: {error2:?}"
-            );
-        }
-        error
-    })
+    /// Real function. Used because lock is optional.
+    fn inner(global: &Params, params: &RunParams) -> anyhow::Result<i32> {
+        let mut job_logger = init_job_logger(params)?;
+        start(global, params, &mut job_logger).map_err(|error| {
+            if let Err(error2) = job_logger.log_wrapper_error(&error) {
+                error!(
+                    "Encountered error2 while logging another error. \
+                    Error2: {error2:?}"
+                );
+            }
+            error
+        })
+    }
+
+    #[allow(clippy::option_if_let_else)] // FIXME doesn’t work in Cargo.toml?
+    match &params.lock_file {
+        Some(path) => try_lock_standard(path, || inner(global, params)),
+        None => inner(global, params),
+    }
 }
 
 /// Start the child process.
+///
+/// # Errors
+///
+/// This handles error events internally, and returns all other errors to
+/// [`main()`] to be outputted nicely.
 fn start(
     global: &Params,
     params: &RunParams,
