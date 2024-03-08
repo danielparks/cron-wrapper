@@ -514,7 +514,7 @@ impl Command {
 
         let mut sources = popol::Sources::with_capacity(2);
 
-        info!("Start: {}", self.command_line_sh().as_bstr());
+        info!("Start: {}", self.command_line().sh().as_bstr());
         debug!("run timeout {run_timeout}, idle timeout {idle_timeout}");
 
         let mut child = process::Command::new(&command);
@@ -573,29 +573,8 @@ impl Command {
 
     /// Get the command line to run as an iterator over words.
     #[must_use]
-    pub const fn command_line(&self) -> WordIterator {
-        WordIterator {
-            command: self,
-            iter: None,
-        }
-    }
-
-    /// Get the command line to run escaped for the shell.
-    ///
-    /// Note that this might return a literal \0 in its return if it is present
-    /// in the command or its arguments.
-    ///
-    /// # Panics
-    ///
-    /// This should not panic with shlex version 1.3.0. However, future version
-    /// of shlex may introduce new ways of quoting that may fail.
-    #[must_use]
-    pub fn command_line_sh(&self) -> Vec<u8> {
-        // This cannot fail in shlex 1.3.0:
-        shlex::bytes::Quoter::new()
-            .allow_nul(true)
-            .join(self.command_line().map(|word| word.as_bytes()))
-            .unwrap()
+    pub const fn command_line(&self) -> WordIterator<Self> {
+        WordIterator::new(self)
     }
 }
 
@@ -1002,19 +981,73 @@ impl ChildOutput {
     }
 }
 
+/// A source for a [`WordIterator`].
+pub trait WordIteratorSource<'a> {
+    /// The first word (the command).
+    fn first(&self) -> &OsString;
+
+    /// An iterator over the rest of the command line.
+    fn iter(&'a self) -> std::slice::Iter<'a, OsString>;
+}
+
+impl<'a> WordIteratorSource<'a> for Command {
+    fn first(&self) -> &OsString {
+        &self.command
+    }
+
+    fn iter(&'a self) -> std::slice::Iter<'a, OsString> {
+        self.args.iter()
+    }
+}
+
 /// An iterator that produces the words in the command line.
-pub struct WordIterator<'a> {
-    /// The [`Command`] we’re getting the command line for.
-    command: &'a Command,
+pub struct WordIterator<'a, S>
+where
+    S: WordIteratorSource<'a>,
+{
+    /// The source of the command line.
+    source: &'a S,
 
     /// Iterator state:
     ///
     /// * `None`: next is the command itself.
-    /// * `Some(iter)`: use `iter` (which points to `self.command.args`).
+    /// * `Some(iter)`: use `iter` (the rest of the command line).
     iter: Option<std::slice::Iter<'a, OsString>>,
 }
 
-impl<'a> Iterator for WordIterator<'a> {
+impl<'a, S> WordIterator<'a, S>
+where
+    S: WordIteratorSource<'a>,
+{
+    /// Create a new `WordIterator`.
+    #[must_use]
+    pub const fn new(source: &'a S) -> Self {
+        Self { source, iter: None }
+    }
+
+    /// Get the command line escaped for the shell.
+    ///
+    /// Note that this might return a literal \0 in its return if it is present
+    /// in the command or its arguments.
+    ///
+    /// # Panics
+    ///
+    /// This should not panic with shlex version 1.3.0. However, future version
+    /// of shlex may introduce new ways of quoting that may fail.
+    #[must_use]
+    pub fn sh(self) -> Vec<u8> {
+        // This cannot fail in shlex 1.3.0:
+        shlex::bytes::Quoter::new()
+            .allow_nul(true)
+            .join(self.map(|word| word.as_bytes()))
+            .unwrap()
+    }
+}
+
+impl<'a, S> Iterator for WordIterator<'a, S>
+where
+    S: WordIteratorSource<'a>,
+{
     type Item = &'a OsString;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1022,8 +1055,8 @@ impl<'a> Iterator for WordIterator<'a> {
             iter.next()
         } else {
             // First element: command.
-            self.iter = Some(self.command.args.iter());
-            Some(&self.command.command)
+            self.iter = Some(self.source.iter());
+            Some(self.source.first())
         }
     }
 }
