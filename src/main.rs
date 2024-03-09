@@ -1,6 +1,6 @@
 //! `cron-wrapper` executable.
 
-// Lint configuration in Cargo.toml isn’t supported by cargo-geiger.
+// Most lint configuration is in lints.toml, but it doesn’t support forbid.
 #![forbid(unsafe_code)]
 
 use anyhow::bail;

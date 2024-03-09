@@ -37,7 +37,6 @@ pub fn run(global: &Params, params: &RunParams) -> anyhow::Result<i32> {
         })
     }
 
-    #[allow(clippy::option_if_let_else)] // FIXME doesn’t work in Cargo.toml?
     match &params.lock_file {
         Some(path) => try_lock_standard(path, || inner(global, params)),
         None => inner(global, params),

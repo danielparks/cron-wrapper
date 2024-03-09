@@ -1,6 +1,7 @@
 //! Miscellaneous useful modules that support cron-wrapper.
 
-// Lint configuration in Cargo.toml isn’t supported by cargo-geiger.
+// Most lint configuration is in lints.toml, but it doesn’t support forbid, nor
+// is it supported by cargo-geiger.
 #![forbid(unsafe_code)]
 
 pub mod command;
