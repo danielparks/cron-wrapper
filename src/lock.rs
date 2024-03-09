@@ -53,6 +53,7 @@ where
         .read(true)
         .write(true)
         .create(true)
+        .truncate(false)
         .open(path.as_ref())
         .map_err(Error::Read)?;
     let mut contents = BString::new(vec![]);
