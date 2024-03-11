@@ -11,7 +11,7 @@ use log::{debug, error, info};
 use std::cell::RefCell;
 use std::ffi::OsString;
 use std::fs;
-use std::io::Write;
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use termcolor::WriteColor;
@@ -39,24 +39,24 @@ pub fn run(global: &Params, params: &RunParams) -> anyhow::Result<i32> {
         })
     }
 
-    match lock_path(params) {
+    match lock_path(params)? {
         Some(path) => try_lock_standard(path, || inner(global, params)),
         None => inner(global, params),
     }
 }
 
 /// Calculate path to lock file, if one is desired.
-fn lock_path(params: &RunParams) -> Option<PathBuf> {
+fn lock_path(params: &RunParams) -> io::Result<Option<PathBuf>> {
     if params.lock_file.is_some() {
-        params.lock_file.clone()
-    } else if let Some(dir) = &params.lock_dir {
+        Ok(params.lock_file.clone())
+    } else if let Some(dir) = &params.lock_dir()? {
         if let Some(name) = &params.lock_name {
-            Some(dir.join(name))
+            Ok(Some(dir.join(name)))
         } else {
-            Some(dir.join(generate_lock_name(params)))
+            Ok(Some(dir.join(generate_lock_name(params))))
         }
     } else {
-        None
+        Ok(None)
     }
 }
 

@@ -2,12 +2,13 @@
 
 use bstr::{BString, ByteSlice};
 use fd_lock::{RwLock, RwLockWriteGuard};
+use home::home_dir;
 use std::env;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{self, ErrorKind, Read, Seek, Write};
 use std::os::unix::ffi::OsStrExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process;
 
 /// Errors establishing a lock might raise.
@@ -99,6 +100,60 @@ where
         writeln!(guard, "PID={}", process::id())?;
         func()
     })
+}
+
+/// Get the default directory to store lock files.
+///
+/// # Errors
+///
+/// This will return [`io::Error`] with [`ErrorKind::NotFound`] if it can’t find
+/// a default lock directory.
+pub fn default_lock_dir() -> io::Result<PathBuf> {
+    if let Some(path) = env::var_os("XDG_RUNTIME_DIR") {
+        let path = PathBuf::from(path);
+        if path.is_dir() {
+            return Ok(path);
+        }
+    }
+
+    let uid = nix::unistd::Uid::effective();
+    if uid.is_root() {
+        for path in ["/run/lock", "/run", "/var/lock", "/var/run"] {
+            let path = PathBuf::from(path);
+            if path.is_dir() {
+                return Ok(path);
+            }
+        }
+    } else {
+        let path = PathBuf::from("/run/user").join(uid.to_string());
+        if path.is_dir() {
+            return Ok(path);
+        }
+
+        for path in ["/run/lock", "/var/lock"] {
+            let path = PathBuf::from(path);
+            if path.is_dir() {
+                let path = path.join(format!("uid-{uid}"));
+                if path.is_dir() || fs::create_dir(&path).is_ok() {
+                    return Ok(path);
+                }
+                // Ignore reason for failing to create directory.
+            }
+        }
+
+        if let Some(home) = home_dir() {
+            let path = home.join(".local").join("run");
+            if path.is_dir() || fs::create_dir(&path).is_ok() {
+                return Ok(path);
+            }
+            // Ignore reason for failing to create directory.
+        }
+    }
+
+    Err(io::Error::new(
+        ErrorKind::NotFound,
+        "no default lock file directory",
+    ))
 }
 
 /// Get the command line for this run escaped for the shell.
