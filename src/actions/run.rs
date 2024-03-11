@@ -117,7 +117,7 @@ fn start(
 
                 info!(
                     "Exit with {code}: {}",
-                    command.command_line_sh().as_bstr()
+                    command.command_line().sh().as_bstr()
                 );
                 return Ok(code);
             }
