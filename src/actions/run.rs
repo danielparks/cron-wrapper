@@ -9,8 +9,10 @@ use cron_wrapper::lock::try_lock_standard;
 use cron_wrapper::pause_writer::PausableWriter;
 use log::{debug, error, info};
 use std::cell::RefCell;
+use std::ffi::OsString;
 use std::fs;
 use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use termcolor::WriteColor;
 
@@ -37,10 +39,50 @@ pub fn run(global: &Params, params: &RunParams) -> anyhow::Result<i32> {
         })
     }
 
-    match &params.lock_file {
+    match lock_path(params) {
         Some(path) => try_lock_standard(path, || inner(global, params)),
         None => inner(global, params),
     }
+}
+
+/// Calculate path to lock file, if one is desired.
+fn lock_path(params: &RunParams) -> Option<PathBuf> {
+    if params.lock_file.is_some() {
+        params.lock_file.clone()
+    } else if let Some(dir) = &params.lock_dir {
+        if let Some(name) = &params.lock_name {
+            Some(dir.join(name))
+        } else {
+            Some(dir.join(generate_lock_name(params)))
+        }
+    } else {
+        None
+    }
+}
+
+/// Generate a unique lock file name based on the command to run.
+fn generate_lock_name(params: &RunParams) -> OsString {
+    /// Separator for command words to be hashed.
+    const SEP: &[u8] = b"\0";
+
+    let command_line: Vec<_> = params
+        .command_line()
+        .map(|word| word.as_encoded_bytes())
+        .collect();
+    let hash = blake3::hash(&command_line.join(SEP)).to_hex();
+
+    // 64 char hash, hyphen, ".lock", + binary name
+    let mut name = OsString::with_capacity(100);
+    let binary: &Path = params.command.as_ref();
+    if let Some(bin_name) = binary.file_name() {
+        // Worst case, bin_name is "" or ".".
+        name.push(bin_name);
+        name.push("-");
+    }
+
+    name.push(hash.as_str());
+    name.push(".lock");
+    name
 }
 
 /// Start the child process.
@@ -55,7 +97,7 @@ fn start(
     job_logger: &mut JobLogger,
 ) -> anyhow::Result<i32> {
     let command = Command {
-        command: params.command.clone().into(),
+        command: params.command.clone(),
         args: params.args.clone(),
         combine_streams: params.combine_output,
         run_timeout: params.run_timeout.into(),
