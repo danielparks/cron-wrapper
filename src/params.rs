@@ -5,10 +5,12 @@ use clap::builder::{OsStringValueParser, TryMapValueParser, TypedValueParser};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_lex::OsStrExt;
 use cron_wrapper::command::{Signal, WordIterator, WordIteratorSource};
+use cron_wrapper::lock::default_lock_dir;
 use is_terminal::IsTerminal;
 use log::{log_enabled, Level::Trace};
 use std::ffi::OsString;
 use std::fmt;
+use std::fs;
 use std::io;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -137,7 +139,7 @@ pub struct RunParams {
     ///
     /// This honors --on-error and --on-fail, and can be used in addition to
     /// --log-dir or --log-file.
-    #[clap(short = 's', long)]
+    #[clap(short = 'S', long)]
     pub log_stdout: bool,
 
     /// Exit if the child runs for longer than DURATION
@@ -177,15 +179,9 @@ pub struct RunParams {
     #[clap(long, default_value = "SIGTERM", value_name = "SIGNAL")]
     pub error_signal: OptionalSignal,
 
-    /// Unique file to ensure only one copy of this command is running at once.
-    ///
-    /// Specifies the lock file to use to ensure that only one copy of this
-    /// command is running at once. If a process is already using the file, the
-    /// file contents will be printed and we will immediately exit.
-    ///
-    /// Conflicts with --lock-dir <PATH>.
-    #[clap(long, value_name = "PATH")]
-    pub lock_file: Option<PathBuf>,
+    /// Ensure only one copy of this command runs at once.
+    #[clap(short = 's', long)]
+    pub lock: bool,
 
     /// Directory to contain lock files used to ensure only one copy of this
     /// command is running at once.
@@ -214,6 +210,16 @@ pub struct RunParams {
     )]
     pub lock_name: Option<OsString>,
 
+    /// Unique file to ensure only one copy of this command is running at once.
+    ///
+    /// Specifies the lock file to use to ensure that only one copy of this
+    /// command is running at once. If a process is already using the file, the
+    /// file contents will be printed and we will immediately exit.
+    ///
+    /// Conflicts with --lock-dir <PATH>.
+    #[clap(long, value_name = "PATH")]
+    pub lock_file: Option<PathBuf>,
+
     /// Hidden: how large a buffer to use
     #[clap(
         long,
@@ -239,6 +245,23 @@ impl RunParams {
     #[must_use]
     pub const fn command_line(&self) -> WordIterator<Self> {
         WordIterator::new(self)
+    }
+
+    /// Return directory to hold locks if locking is desired.
+    pub fn lock_dir(&self) -> io::Result<Option<PathBuf>> {
+        if self.lock_dir.is_some() {
+            Ok(self.lock_dir.clone())
+        } else if self.lock {
+            // Default lock directory
+            let path = default_lock_dir()?.join("cron-wrapper");
+            if !path.is_dir() {
+                fs::create_dir(&path)?;
+            }
+            Ok(Some(path))
+        } else {
+            // --lock-file is handled a different way.
+            Ok(None)
+        }
     }
 }
 
