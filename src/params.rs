@@ -180,8 +180,16 @@ pub struct RunParams {
     pub error_signal: OptionalSignal,
 
     /// Ensure only one copy of this command runs at once.
-    #[clap(short = 's', long)]
+    ///
+    /// Conflicts with --lock-wait.
+    #[clap(short = 's', long, conflicts_with = "lock_wait")]
     pub lock: bool,
+
+    /// Wait for other copies of this command to finish before running.
+    ///
+    /// Conflicts with --lock.
+    #[clap(short = 'w', long, conflicts_with = "lock")]
+    pub lock_wait: bool,
 
     /// Directory to contain lock files used to ensure only one copy of this
     /// command is running at once.
@@ -251,7 +259,7 @@ impl RunParams {
     pub fn lock_dir(&self) -> io::Result<Option<PathBuf>> {
         if self.lock_dir.is_some() {
             Ok(self.lock_dir.clone())
-        } else if self.lock {
+        } else if self.lock || self.lock_wait {
             // Default lock directory
             let path = default_lock_dir()?.join("cron-wrapper");
             if !path.is_dir() {

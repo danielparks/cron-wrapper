@@ -37,12 +37,48 @@ pub enum Error {
     },
 }
 
+/// Should we wait for the lock to be available, or return immediately?
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Behavior {
+    /// Return immediately without calling inner function if the lock is held by
+    /// another process. [`Error::AlreadyRunning`] will be returned with the
+    /// contents of the lock file in this case.
+    Return,
+
+    /// Wait for the lock to be available.
+    ///
+    /// There is no timeout; this may wait forever.
+    Wait,
+}
+
+impl Behavior {
+    /// Try to obtain the lock following the [`Behavior`].
+    ///
+    /// # Errors
+    ///
+    /// Depending on `Behavior`, this will either return errors from
+    /// [`RwLock::try_write()`] or [`RwLock::write()`].
+    pub fn lock<'a, T: std::os::fd::AsFd>(
+        &self,
+        lock: &'a mut RwLock<T>,
+    ) -> io::Result<RwLockWriteGuard<'a, T>> {
+        match self {
+            Self::Return => lock.try_write(),
+            Self::Wait => lock.write(),
+        }
+    }
+}
+
 /// Open a lock file to ensure `func` is only run once.
 ///
 /// # Errors
 ///
 /// See [`Error`]. This can return an error from the inner function, too.
-pub fn try_lock_raw<P, R, F>(path: P, func: F) -> anyhow::Result<R>
+pub fn lock_raw<P, R, F>(
+    path: P,
+    behavior: Behavior,
+    func: F,
+) -> anyhow::Result<R>
 where
     P: AsRef<Path>,
     F: FnOnce(RwLockWriteGuard<'_, fs::File>) -> anyhow::Result<R>,
@@ -64,7 +100,7 @@ where
     let mut lock = RwLock::new(file);
 
     for _ in 0..ATTEMPTS {
-        return match lock.try_write() {
+        return match behavior.lock(&mut lock) {
             Ok(guard) => func(guard),
             Err(error) => match error.kind() {
                 ErrorKind::WouldBlock => {
@@ -88,12 +124,16 @@ where
 /// # Errors
 ///
 /// See [`Error`]. This can return an error from the inner function, too.
-pub fn try_lock_standard<P, R, F>(path: P, func: F) -> anyhow::Result<R>
+pub fn lock_standard<P, R, F>(
+    path: P,
+    behavior: Behavior,
+    func: F,
+) -> anyhow::Result<R>
 where
     P: AsRef<Path>,
     F: FnOnce() -> anyhow::Result<R>,
 {
-    try_lock_raw(path, |mut guard| {
+    lock_raw(path, behavior, |mut guard| {
         guard.set_len(0)?;
         guard.rewind()?;
         writeln!(guard, "COMMAND={}", args_sh().as_bstr())?;
@@ -184,13 +224,13 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn try_lock_raw_basic() {
+    fn lock_raw_basic() {
         let directory = tempdir().unwrap();
         let foo_file = directory.path().join("foo");
 
         // Check that creating a file works.
         let_assert!(
-            Ok(()) = try_lock_raw(&foo_file, |mut guard| {
+            Ok(()) = lock_raw(&foo_file, Behavior::Return, |mut guard| {
                 guard.set_len(0)?;
                 guard.rewind()?;
                 writeln!(guard, "Ok")?;
@@ -203,7 +243,7 @@ mod tests {
 
         // Check that using the file a second time works.
         let_assert!(
-            Ok(()) = try_lock_raw(&foo_file, |mut guard| {
+            Ok(()) = lock_raw(&foo_file, Behavior::Return, |mut guard| {
                 guard.set_len(0)?;
                 guard.rewind()?;
                 writeln!(guard, "2")?;
@@ -217,12 +257,14 @@ mod tests {
 
     #[allow(clippy::naive_bytecount)] // Overkill for this case.
     #[test]
-    fn try_lock_standard_basic() {
+    fn lock_standard_basic() {
         let directory = tempdir().unwrap();
         let foo_file = directory.path().join("foo");
 
         // Check that creating a file works.
-        let_assert!(Ok(()) = try_lock_standard(&foo_file, || { Ok(()) }));
+        let_assert!(
+            Ok(()) = lock_standard(&foo_file, Behavior::Return, || { Ok(()) })
+        );
 
         let_assert!(Ok(contents) = fs::read(&foo_file));
         check!(
@@ -231,7 +273,9 @@ mod tests {
         );
 
         // Check that using the file a second time works.
-        let_assert!(Ok(()) = try_lock_standard(&foo_file, || { Ok(()) }));
+        let_assert!(
+            Ok(()) = lock_standard(&foo_file, Behavior::Return, || { Ok(()) })
+        );
 
         let_assert!(Ok(contents) = fs::read(&foo_file));
         check!(
