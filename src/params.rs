@@ -1,8 +1,10 @@
 //! Manage parameters for `cron-wrapper`.
 
 use anyhow::anyhow;
+use clap::builder::{OsStringValueParser, TryMapValueParser, TypedValueParser};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use cron_wrapper::command::Signal;
+use clap_lex::OsStrExt;
+use cron_wrapper::command::{Signal, WordIterator, WordIteratorSource};
 use is_terminal::IsTerminal;
 use log::{log_enabled, Level::Trace};
 use std::ffi::OsString;
@@ -82,7 +84,7 @@ pub enum Action {
 #[allow(clippy::struct_excessive_bools)]
 pub struct RunParams {
     /// The executable to run
-    pub command: PathBuf,
+    pub command: OsString,
 
     /// Arguments to pass to the executable
     #[clap(allow_hyphen_values = true)]
@@ -175,13 +177,42 @@ pub struct RunParams {
     #[clap(long, default_value = "SIGTERM", value_name = "SIGNAL")]
     pub error_signal: OptionalSignal,
 
-    /// Ensure that only one copy of this command is running at once.
+    /// Unique file to ensure only one copy of this command is running at once.
     ///
     /// Specifies the lock file to use to ensure that only one copy of this
     /// command is running at once. If a process is already using the file, the
     /// file contents will be printed and we will immediately exit.
-    #[clap(long, value_name = "FILE")]
+    ///
+    /// Conflicts with --lock-dir <PATH>.
+    #[clap(long, value_name = "PATH")]
     pub lock_file: Option<PathBuf>,
+
+    /// Directory to contain lock files used to ensure only one copy of this
+    /// command is running at once.
+    ///
+    /// Specifies a directory in which to place a lock file used to ensure that
+    /// only one copy of this command is running at once. If a process is
+    /// already using the file, the file contents will be printed and we will
+    /// immediately exit.
+    ///
+    /// Conflicts with --lock-file <PATH>.
+    #[clap(long, value_name = "PATH", conflicts_with = "lock_file")]
+    pub lock_dir: Option<PathBuf>,
+
+    /// Unique name used to ensure only one copy of this command is running at
+    /// once.
+    ///
+    /// No other copy of cron-wrapper will be able to run at the same time if it
+    /// uses the same lock name and the same lock directory.
+    ///
+    /// May not contain '/'. Conflicts with --lock-file <PATH>.
+    #[clap(
+        long,
+        value_name = "NAME",
+        value_parser = file_name_value_parser(),
+        conflicts_with = "lock_file",
+    )]
+    pub lock_name: Option<OsString>,
 
     /// Hidden: how large a buffer to use
     #[clap(
@@ -202,6 +233,22 @@ impl RunParams {
     /// Suppress normal output in favor of some other output.
     pub fn normal_output_enabled(&self) -> bool {
         !log_enabled!(Trace) && !self.log_stdout
+    }
+
+    /// Get the command line to run as an iterator over words.
+    #[must_use]
+    pub const fn command_line(&self) -> WordIterator<Self> {
+        WordIterator::new(self)
+    }
+}
+
+impl<'a> WordIteratorSource<'a> for RunParams {
+    fn first(&self) -> &OsString {
+        &self.command
+    }
+
+    fn iter(&'a self) -> std::slice::Iter<'a, OsString> {
+        self.args.iter()
     }
 }
 
@@ -333,6 +380,28 @@ impl From<ColorChoice> for termcolor::ColorChoice {
             ColorChoice::Never => Self::Never,
         }
     }
+}
+
+/// Value parser to validate a file name.
+#[allow(clippy::type_complexity)] // Not reused and necessary.
+fn file_name_value_parser() -> TryMapValueParser<
+    OsStringValueParser,
+    fn(OsString) -> Result<OsString, &'static str>,
+> {
+    /// Validate a file name.
+    fn validate_file_name(name: OsString) -> Result<OsString, &'static str> {
+        if name.is_empty() {
+            Err("name cannot be empty")
+        } else if name.starts_with(".") {
+            Err("name cannot start with '.'")
+        } else if name.contains("/") {
+            Err("name cannot contain '/'")
+        } else {
+            Ok(name)
+        }
+    }
+
+    OsStringValueParser::new().try_map(validate_file_name)
 }
 
 #[cfg(test)]
