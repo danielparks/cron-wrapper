@@ -71,17 +71,35 @@ impl Behavior {
 
 /// Open a lock file to ensure `func` is only run once.
 ///
+/// `lock_writer` is used to write the message to the lock file. Generally, you
+/// will want to use [`standard_message`]. The lock file will be truncated and
+/// ready for writing before `lock_writer` is called.
+///
+/// # Example
+///
+/// ```rust
+/// # let handle = tempfile::NamedTempFile::new().unwrap().into_temp_path();
+/// # let path = handle.to_path_buf();
+/// use cron_wrapper::lock;
+/// lock::lock(&path, lock::Behavior::Wait, lock::standard_message, || {
+///     // ... do stuff ...
+///     Ok(())
+/// }).unwrap();
+/// ```
+///
 /// # Errors
 ///
 /// See [`Error`]. This can return an error from the inner function, too.
-pub fn lock_raw<P, R, F>(
+pub fn lock<P, R, M, F>(
     path: P,
     behavior: Behavior,
+    lock_writer: M,
     func: F,
 ) -> anyhow::Result<R>
 where
     P: AsRef<Path>,
-    F: FnOnce(RwLockWriteGuard<'_, fs::File>) -> anyhow::Result<R>,
+    M: FnOnce(&mut RwLockWriteGuard<'_, fs::File>) -> io::Result<()>,
+    F: FnOnce() -> anyhow::Result<R>,
 {
     /// Only retry locking after a signal interruption this many times.
     const ATTEMPTS: usize = 10;
@@ -101,7 +119,12 @@ where
 
     for _ in 0..ATTEMPTS {
         return match behavior.lock(&mut lock) {
-            Ok(guard) => func(guard),
+            Ok(mut guard) => {
+                guard.set_len(0)?;
+                guard.rewind()?;
+                lock_writer(&mut guard)?;
+                func()
+            }
             Err(error) => match error.kind() {
                 ErrorKind::WouldBlock => {
                     Err(Error::AlreadyRunning { contents }.into())
@@ -118,28 +141,62 @@ where
     Err(Error::LockInterupted { attempts: ATTEMPTS }.into())
 }
 
-/// Open a lock file to ensure `func` is only run once. This writes the standard
-/// message to the lock file if it manages to obtain it.
+/// Write a standard message to the lock file. Use with [`lock()`].
+///
+/// The message will look something like:
+///
+/// ```text
+/// COMMAND=my-command -abc arg1 'arg two with whitespace'
+/// PID=1234
+/// ```
+///
+/// # Example
+///
+/// ```rust
+/// # let handle = tempfile::NamedTempFile::new().unwrap().into_temp_path();
+/// # let path = handle.to_path_buf();
+/// use cron_wrapper::lock;
+/// lock::lock(&path, lock::Behavior::Wait, lock::standard_message, || {
+///     // ... do stuff ...
+///     Ok(())
+/// }).unwrap();
+/// ```
 ///
 /// # Errors
 ///
-/// See [`Error`]. This can return an error from the inner function, too.
-pub fn lock_standard<P, R, F>(
-    path: P,
-    behavior: Behavior,
-    func: F,
-) -> anyhow::Result<R>
+/// This can return [`io::Error`] if there’s a problem writing to the file.
+pub fn standard_message(
+    guard: &mut RwLockWriteGuard<'_, fs::File>,
+) -> io::Result<()> {
+    writeln!(guard, "COMMAND={}", args_sh().as_bstr())?;
+    writeln!(guard, "PID={}", process::id())
+}
+
+/// Write a static message to the lock file. Use with [`lock()`].
+///
+/// This returns a function.
+///
+/// # Example
+///
+/// ```rust
+/// # let handle = tempfile::NamedTempFile::new().unwrap().into_temp_path();
+/// # let path = handle.to_path_buf();
+/// use cron_wrapper::lock;
+/// lock::lock(&path, lock::Behavior::Wait, lock::static_message("locked"), || {
+///     // ... do stuff ...
+///     Ok(())
+/// }).unwrap();
+///
+/// assert_eq!(std::fs::read(&path).unwrap(), b"locked");
+/// ```
+pub fn static_message<S>(
+    message: S,
+) -> impl FnOnce(&mut RwLockWriteGuard<'_, fs::File>) -> io::Result<()>
 where
-    P: AsRef<Path>,
-    F: FnOnce() -> anyhow::Result<R>,
+    S: std::fmt::Display,
 {
-    lock_raw(path, behavior, |mut guard| {
-        guard.set_len(0)?;
-        guard.rewind()?;
-        writeln!(guard, "COMMAND={}", args_sh().as_bstr())?;
-        writeln!(guard, "PID={}", process::id())?;
-        func()
-    })
+    let message = message.to_string();
+    move |guard| guard.write_all(message.as_bytes())
 }
 
 /// Get the default directory to store lock files.
@@ -224,35 +281,31 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn lock_raw_basic() {
+    fn lock_basic() {
         let directory = tempdir().unwrap();
         let foo_file = directory.path().join("foo");
 
         // Check that creating a file works.
         let_assert!(
-            Ok(()) = lock_raw(&foo_file, Behavior::Return, |mut guard| {
-                guard.set_len(0)?;
-                guard.rewind()?;
-                writeln!(guard, "Ok")?;
-                Ok(())
-            })
+            Ok(()) =
+                lock(&foo_file, Behavior::Return, static_message("Ok"), || {
+                    Ok(())
+                })
         );
 
         let_assert!(Ok(contents) = fs::read(&foo_file));
-        check!(contents.as_bstr() == b"Ok\n".as_bstr());
+        check!(contents.as_bstr() == b"Ok".as_bstr());
 
         // Check that using the file a second time works.
         let_assert!(
-            Ok(()) = lock_raw(&foo_file, Behavior::Return, |mut guard| {
-                guard.set_len(0)?;
-                guard.rewind()?;
-                writeln!(guard, "2")?;
-                Ok(())
-            })
+            Ok(()) =
+                lock(&foo_file, Behavior::Return, static_message("2"), || {
+                    Ok(())
+                })
         );
 
         let_assert!(Ok(contents) = fs::read(&foo_file));
-        check!(contents.as_bstr() == b"2\n".as_bstr());
+        check!(contents.as_bstr() == b"2".as_bstr());
     }
 
     #[allow(clippy::naive_bytecount)] // Overkill for this case.
@@ -263,7 +316,10 @@ mod tests {
 
         // Check that creating a file works.
         let_assert!(
-            Ok(()) = lock_standard(&foo_file, Behavior::Return, || { Ok(()) })
+            Ok(()) =
+                lock(&foo_file, Behavior::Return, standard_message, || {
+                    Ok(())
+                })
         );
 
         let_assert!(Ok(contents) = fs::read(&foo_file));
@@ -274,7 +330,10 @@ mod tests {
 
         // Check that using the file a second time works.
         let_assert!(
-            Ok(()) = lock_standard(&foo_file, Behavior::Return, || { Ok(()) })
+            Ok(()) =
+                lock(&foo_file, Behavior::Return, standard_message, || {
+                    Ok(())
+                })
         );
 
         let_assert!(Ok(contents) = fs::read(&foo_file));
