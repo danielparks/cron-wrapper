@@ -5,7 +5,7 @@ use anyhow::{bail, Context};
 use bstr::ByteSlice;
 use cron_wrapper::command::{Command, Event};
 use cron_wrapper::job_logger::{Destination, JobLogger};
-use cron_wrapper::lock::try_lock_standard;
+use cron_wrapper::lock::{lock_standard, Behavior};
 use cron_wrapper::pause_writer::PausableWriter;
 use log::{debug, error, info};
 use std::cell::RefCell;
@@ -39,8 +39,14 @@ pub fn run(global: &Params, params: &RunParams) -> anyhow::Result<i32> {
         })
     }
 
+    let behavior = if params.lock_wait {
+        Behavior::Wait
+    } else {
+        Behavior::Return
+    };
+
     match lock_path(params)? {
-        Some(path) => try_lock_standard(path, || inner(global, params)),
+        Some(path) => lock_standard(path, behavior, || inner(global, params)),
         None => inner(global, params),
     }
 }
