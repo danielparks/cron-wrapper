@@ -47,6 +47,7 @@ pub fn run(global: &Params, params: &RunParams) -> anyhow::Result<i32> {
 
     match lock_path(params)? {
         Some(path) => {
+            debug!("Using lock file {}", path.display());
             lock::lock(path, behavior, lock::standard_message, || {
                 inner(global, params)
             })
