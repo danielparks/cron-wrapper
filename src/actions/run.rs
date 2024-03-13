@@ -48,17 +48,24 @@ pub fn run(global: &Params, params: &RunParams) -> anyhow::Result<i32> {
         job_logger.add_destination(Destination::ColorStream(out.clone()));
     }
 
-    try_lock(params, || start(params, &mut job_logger, &out, &command)).map_err(
-        |error| {
+    match try_lock(params, || start(params, &mut job_logger, &out, &command)) {
+        Ok(code) => Ok(code),
+        Err(error) => {
             if let Err(error2) = job_logger.log_wrapper_error(&error) {
                 error!(
                     "Encountered error2 while logging another error. \
                     Error2: {error2:?}"
                 );
             }
-            error
-        },
-    )
+
+            if params.log_stdout {
+                // Error was already printed by job_logger.
+                Ok(1)
+            } else {
+                Err(error)
+            }
+        }
+    }
 }
 
 /// Start the child process.
