@@ -222,11 +222,13 @@ pub fn default_lock_dir() -> io::Result<PathBuf> {
             }
         }
     } else {
+        // /run/user/<UID>/ is the current standard on Linux.
         let path = PathBuf::from("/run/user").join(uid.to_string());
         if path.is_dir() {
             return Ok(path);
         }
 
+        // /run/lock/uid-<UID>/ seems reasonable.
         for path in ["/run/lock", "/var/lock"] {
             let path = PathBuf::from(path);
             if path.is_dir() {
@@ -238,9 +240,12 @@ pub fn default_lock_dir() -> io::Result<PathBuf> {
             }
         }
 
+        // ~/.local/run is not actually an official path, but we need a
+        // reasonable fallback within $HOME. This will create the whole path if
+        // it doesn’t already exist.
         if let Some(home) = home_dir() {
             let path = home.join(".local").join("run");
-            if path.is_dir() || fs::create_dir(&path).is_ok() {
+            if path.is_dir() || fs::create_dir_all(&path).is_ok() {
                 return Ok(path);
             }
             // Ignore reason for failing to create directory.
