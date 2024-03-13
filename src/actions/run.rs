@@ -18,95 +18,15 @@ use termcolor::WriteColor;
 
 /// Handle the `run` action.
 ///
-/// This is mostly a wrapper around [`start()`].
+/// This primarily makes sure the [`JobLogger`] is configured and tries to catch
+/// any errors so that they can be logged by [`JobLogger`]. The bulk of the
+/// actual work is done by [`start()`].
 ///
 /// # Errors
 ///
 /// This tries to log errors encountered after logging is started, and returns
 /// all errors to [`main()`] to be outputted nicely.
 pub fn run(global: &Params, params: &RunParams) -> anyhow::Result<i32> {
-    /// Real function. Used because lock is optional.
-    fn inner(global: &Params, params: &RunParams) -> anyhow::Result<i32> {
-        let mut job_logger = init_job_logger(params)?;
-        start(global, params, &mut job_logger).map_err(|error| {
-            if let Err(error2) = job_logger.log_wrapper_error(&error) {
-                error!(
-                    "Encountered error2 while logging another error. \
-                    Error2: {error2:?}"
-                );
-            }
-            error
-        })
-    }
-
-    let behavior = if params.lock_wait {
-        lock::Behavior::Wait
-    } else {
-        lock::Behavior::Return
-    };
-
-    match lock_path(params)? {
-        Some(path) => {
-            debug!("Using lock file {}", path.display());
-            lock::lock(path, behavior, lock::standard_message, || {
-                inner(global, params)
-            })
-        }
-        None => inner(global, params),
-    }
-}
-
-/// Calculate path to lock file, if one is desired.
-fn lock_path(params: &RunParams) -> io::Result<Option<PathBuf>> {
-    if params.lock_file.is_some() {
-        Ok(params.lock_file.clone())
-    } else if let Some(dir) = &params.lock_dir()? {
-        if let Some(name) = &params.lock_name {
-            Ok(Some(dir.join(name)))
-        } else {
-            Ok(Some(dir.join(generate_lock_name(params))))
-        }
-    } else {
-        Ok(None)
-    }
-}
-
-/// Generate a unique lock file name based on the command to run.
-fn generate_lock_name(params: &RunParams) -> OsString {
-    /// Separator for command words to be hashed.
-    const SEP: &[u8] = b"\0";
-
-    let command_line: Vec<_> = params
-        .command_line()
-        .map(|word| word.as_encoded_bytes())
-        .collect();
-    let hash = blake3::hash(&command_line.join(SEP)).to_hex();
-
-    // 64 char hash, hyphen, ".lock", + binary name
-    let mut name = OsString::with_capacity(100);
-    let binary: &Path = params.command.as_ref();
-    if let Some(bin_name) = binary.file_name() {
-        // Worst case, bin_name is "" or ".".
-        name.push(bin_name);
-        name.push("-");
-    }
-
-    name.push(hash.as_str());
-    name.push(".lock");
-    name
-}
-
-/// Start the child process.
-///
-/// # Errors
-///
-/// This handles error events internally, and returns all other errors to
-/// [`main()`] to be outputted nicely.
-fn start(
-    global: &Params,
-    params: &RunParams,
-    job_logger: &mut JobLogger,
-) -> anyhow::Result<i32> {
     let command = Command {
         command: params.command.clone(),
         args: params.args.clone(),
@@ -115,10 +35,9 @@ fn start(
         idle_timeout: params.idle_timeout.into(),
         buffer_size: params.buffer_size,
     };
-    job_logger.set_command(&command);
 
-    let mut child = command.spawn()?;
-    job_logger.set_child(&child);
+    let mut job_logger = init_job_logger(params)?;
+    job_logger.set_command(&command);
 
     let out = Rc::new(RefCell::new(PausableWriter::stdout(
         global.out_color_choice(),
@@ -128,6 +47,34 @@ fn start(
     if params.log_stdout {
         job_logger.add_destination(Destination::ColorStream(out.clone()));
     }
+
+    try_lock(params, || start(params, &mut job_logger, &out, &command)).map_err(
+        |error| {
+            if let Err(error2) = job_logger.log_wrapper_error(&error) {
+                error!(
+                    "Encountered error2 while logging another error. \
+                    Error2: {error2:?}"
+                );
+            }
+            error
+        },
+    )
+}
+
+/// Start the child process.
+///
+/// # Errors
+///
+/// This handles error events internally, and returns all other errors to
+/// [`run()`] to be outputted nicely.
+fn start(
+    params: &RunParams,
+    job_logger: &mut JobLogger,
+    out: &Rc<RefCell<PausableWriter>>,
+    command: &Command,
+) -> anyhow::Result<i32> {
+    let mut child = command.spawn()?;
+    job_logger.set_child(&child);
 
     let err_color = error_color();
 
@@ -240,4 +187,69 @@ fn init_job_logger(params: &RunParams) -> anyhow::Result<JobLogger> {
     } else {
         Ok(JobLogger::none())
     }
+}
+
+/// Calculate path to lock file, if one is desired.
+fn lock_path(params: &RunParams) -> io::Result<Option<PathBuf>> {
+    if params.lock_file.is_some() {
+        Ok(params.lock_file.clone())
+    } else if let Some(dir) = &params.lock_dir()? {
+        if let Some(name) = &params.lock_name {
+            Ok(Some(dir.join(name)))
+        } else {
+            Ok(Some(dir.join(generate_lock_name(params))))
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+/// Try to establish a lock, if requested.
+///
+/// # Errors
+///
+/// Getting the lock can return an error, including that the lock is already in
+/// use. This also passes through errors from [`func`].
+fn try_lock<R, F>(params: &RunParams, func: F) -> anyhow::Result<R>
+where
+    F: FnOnce() -> anyhow::Result<R>,
+{
+    match lock_path(params)? {
+        Some(path) => {
+            debug!("Using lock file {}", path.display());
+            let behavior = if params.lock_wait {
+                lock::Behavior::Wait
+            } else {
+                lock::Behavior::Return
+            };
+
+            lock::lock(path, behavior, lock::standard_message, func)
+        }
+        None => func(),
+    }
+}
+
+/// Generate a unique lock file name based on the command to run.
+fn generate_lock_name(params: &RunParams) -> OsString {
+    /// Separator for command words to be hashed.
+    const SEP: &[u8] = b"\0";
+
+    let command_line: Vec<_> = params
+        .command_line()
+        .map(|word| word.as_encoded_bytes())
+        .collect();
+    let hash = blake3::hash(&command_line.join(SEP)).to_hex();
+
+    // 64 char hash, hyphen, ".lock", + binary name
+    let mut name = OsString::with_capacity(100);
+    let binary: &Path = params.command.as_ref();
+    if let Some(bin_name) = binary.file_name() {
+        // Worst case, bin_name is "" or ".".
+        name.push(bin_name);
+        name.push("-");
+    }
+
+    name.push(hash.as_str());
+    name.push(".lock");
+    name
 }
