@@ -122,8 +122,8 @@ fn start(
 
     let out = Rc::new(RefCell::new(PausableWriter::stdout(
         global.out_color_choice(),
+        params.start_paused(),
     )));
-    out.borrow_mut().set_paused(params.start_paused())?;
 
     if params.log_stdout {
         job_logger.add_destination(Destination::ColorStream(out.clone()));
