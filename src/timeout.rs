@@ -175,32 +175,6 @@ impl Timeout {
         }
     }
 
-    /// Calculate how much of the timeout has elapsed, rounded to the nearest
-    /// millisecond.
-    ///
-    /// [`Timeout::Never`] and [`Timeout::Future`] both always return
-    /// [`Duration::ZERO`].
-    ///
-    /// This will not do anything special if called on a [`Timeout::Pending`]
-    /// that has expired. See [`Timeout::check_expired()`].
-    #[must_use]
-    pub fn elapsed_rounded(&self) -> Duration {
-        // FIXME: pass factor to round to?
-        let elapsed = self.elapsed();
-        let nanos: u32 = elapsed.subsec_nanos();
-        let sub_ms = nanos % 1_000_000;
-
-        // sub_ms is nanos % 1e6, so sub_ms <= nanos
-        #[allow(clippy::arithmetic_side_effects)]
-        let rounded = if sub_ms < 500_000 {
-            nanos - sub_ms
-        } else {
-            nanos + 1_000_000 - sub_ms
-        };
-
-        Duration::new(elapsed.as_secs(), rounded)
-    }
-
     /// Will this never time out?
     ///
     /// Returns `true` for [`Timeout::Never`] and `false` for everything else.
@@ -312,21 +286,6 @@ mod tests {
             requested: Duration::from_micros(microseconds),
             actual: Duration::from_micros(microseconds),
         }
-    }
-
-    #[test]
-    fn elapsed_rounded_up() {
-        check!(expired_timeout(1_500).elapsed_rounded().as_micros() == 2_000);
-    }
-
-    #[test]
-    fn elapsed_rounded_exact() {
-        check!(expired_timeout(2_000).elapsed_rounded().as_micros() == 2_000);
-    }
-
-    #[test]
-    fn elapsed_rounded_down() {
-        check!(expired_timeout(2_499).elapsed_rounded().as_micros() == 2_000);
     }
 
     #[test]
