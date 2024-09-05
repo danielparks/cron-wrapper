@@ -675,10 +675,7 @@ impl Child {
     ///
     /// child.kill(Signal::SIGKILL).unwrap_err();
     /// ```
-    pub fn kill<S: Into<Option<Signal>>>(
-        &mut self,
-        signal: S,
-    ) -> NixResult<()> {
+    pub fn kill<S: Into<Option<Signal>>>(&self, signal: S) -> NixResult<()> {
         kill(self.pid(), signal)
     }
 
