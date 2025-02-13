@@ -94,8 +94,9 @@ pub fn parse_log(
 }
 
 /// Generate a parser for a metadata line of a structured log.
+#[allow(clippy::type_complexity)]
 pub fn metadata_line_parser<'a, E>(
-) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], (&[u8], Vec<u8>), E>
+) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], (&'a [u8], Vec<u8>), E>
 where
     E: ParseError<'a>,
 {
