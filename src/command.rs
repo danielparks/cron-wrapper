@@ -49,9 +49,8 @@ pub use nix::Result as NixResult;
 ///
 /// For the standard `poll()` syscall, this is [`i32::MAX`] milliseconds, or
 /// just short of 25 days.
-const POLL_MAX_TIMEOUT: Timeout = Timeout::Future {
-    timeout: Duration::from_millis(i32::MAX as u64),
-};
+const POLL_MAX_TIMEOUT: Timeout =
+    Timeout::Future { timeout: Duration::from_millis(i32::MAX as u64) };
 
 /// Used to indicate either stderr or stdout on the child process.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]

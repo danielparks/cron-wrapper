@@ -18,9 +18,7 @@ use time::OffsetDateTime;
 
 /// Date and time format to use in log file names.
 const FILE_NAME_DATE_FORMAT: iso8601::EncodedConfig = iso8601::Config::DEFAULT
-    .set_time_precision(iso8601::TimePrecision::Second {
-        decimal_digits: None,
-    })
+    .set_time_precision(iso8601::TimePrecision::Second { decimal_digits: None })
     .encode();
 
 /// An object to optionally log all [`Event`]s from a [`Child`] to a file.

@@ -138,11 +138,7 @@ where
             map(
                 // The indent should match the length of the prefix.
                 value_parser(prefix.len(), kind.newline_behavior()),
-                move |value| Record {
-                    time_offset,
-                    kind,
-                    value,
-                },
+                move |value| Record { time_offset, kind, value },
             )
         },
     )
@@ -487,14 +483,7 @@ mod tests {
         value: &'a str,
     ) -> Result<(&'a [u8], Record), NomError<'a>> {
         let value = value.as_bytes().to_vec();
-        Ok((
-            rest.as_bytes(),
-            Record {
-                time_offset,
-                kind,
-                value,
-            },
-        ))
+        Ok((rest.as_bytes(), Record { time_offset, kind, value }))
     }
 
     #[test]
