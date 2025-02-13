@@ -1,3 +1,5 @@
+//! General tests of command line.
+
 use assert2::check;
 use bstr::{ByteSlice, B};
 

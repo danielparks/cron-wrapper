@@ -1,3 +1,5 @@
+//! Test lock options on command line.
+
 use assert2::check;
 use bstr::ByteSlice;
 use std::thread;
