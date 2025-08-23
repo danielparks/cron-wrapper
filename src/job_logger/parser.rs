@@ -373,7 +373,7 @@ mod tests {
     #[allow(clippy::type_complexity)] // Hard to avoid.
     fn parse_log_str(
         input: &str,
-    ) -> Result<(Vec<(&str, String)>, Vec<Record>), NomError> {
+    ) -> Result<(Vec<(&str, String)>, Vec<Record>), NomError<'_>> {
         parse_log(input.as_bytes()).map(|(metadata, records)| {
             (
                 metadata
@@ -469,7 +469,7 @@ mod tests {
     }
 
     /// Parse a string using `record_parser()`.
-    fn parse_record_str(s: &str) -> Result<(&[u8], Record), NomError> {
+    fn parse_record_str(s: &str) -> Result<(&[u8], Record), NomError<'_>> {
         record_parser()(s.as_bytes())
     }
 
@@ -567,7 +567,9 @@ mod tests {
     }
 
     /// Parse a string using `metadata_line_parser()`.
-    fn parse_metadata_str(s: &str) -> Result<(&str, (&str, String)), NomError> {
+    fn parse_metadata_str(
+        s: &str,
+    ) -> Result<(&str, (&str, String)), NomError<'_>> {
         let (rest, (key, value)) = metadata_line_parser()(s.as_bytes())?;
         Ok((
             std::str::from_utf8(rest).unwrap(),
