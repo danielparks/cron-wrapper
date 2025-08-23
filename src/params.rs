@@ -251,7 +251,7 @@ impl RunParams {
 
     /// Get the command line to run as an iterator over words.
     #[must_use]
-    pub const fn command_line(&self) -> WordIterator<Self> {
+    pub const fn command_line(&self) -> WordIterator<'_, Self> {
         WordIterator::new(self)
     }
 
@@ -552,7 +552,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // FIXME clap doesn’t stop parsing after first non-flag.
+    #[ignore = "clap doesn’t stop parsing after first non-flag."]
     fn args_our_long_option_after_command() {
         let_assert!(
             Ok(params) = Params::try_parse_from([
@@ -571,7 +571,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // FIXME clap doesn’t stop parsing after first non-flag.
+    #[ignore = "clap doesn’t stop parsing after first non-flag"]
     fn args_our_same_long_option_after_command() {
         let_assert!(
             Ok(params) = Params::try_parse_from([
@@ -589,7 +589,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // FIXME clap doesn’t stop parsing after first non-flag.
+    #[ignore = "clap doesn’t stop parsing after first non-flag."]
     fn args_our_short_option_after_command() {
         let_assert!(
             Ok(params) = Params::try_parse_from([
@@ -608,7 +608,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // FIXME clap doesn’t stop parsing after first non-flag.
+    #[ignore = "clap doesn’t stop parsing after first non-flag."]
     fn args_our_same_short_option_after_command() {
         let_assert!(
             Ok(params) = Params::try_parse_from([

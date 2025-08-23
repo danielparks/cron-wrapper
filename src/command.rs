@@ -579,7 +579,7 @@ impl Command {
 
     /// Get the command line to run as an iterator over words.
     #[must_use]
-    pub const fn command_line(&self) -> WordIterator<Self> {
+    pub const fn command_line(&self) -> WordIterator<'_, Self> {
         WordIterator::new(self)
     }
 }
