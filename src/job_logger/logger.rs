@@ -681,9 +681,9 @@ fn escape_value(
     // FIXME: maybe this should be a little larger than `input.len()`?
     let mut output: Vec<u8> = Vec::with_capacity(input.len());
 
-    if let Some((&last, inpu)) = input.split_last() {
+    if let Some((&last, input)) = input.split_last() {
         let indent = b" ".repeat(indent);
-        for &b in inpu {
+        for &b in input {
             escape_byte_into(b, &mut output);
             if b == b'\n' {
                 output.extend_from_slice(&indent);

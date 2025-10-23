@@ -23,9 +23,9 @@ pub enum Error {
     Lock(io::Error),
 
     /// Call to get a lock was interrupted by a signal repeatedly.
-    #[error("Interupted {attempts} times trying to get lock")]
-    LockInterupted {
-        /// How many times the attempt to establish a lock was interupted.
+    #[error("Interrupted {attempts} times trying to get lock")]
+    LockInterrupted {
+        /// How many times the attempt to establish a lock was interrupted.
         attempts: usize,
     },
 
@@ -138,7 +138,7 @@ where
         };
     }
 
-    Err(Error::LockInterupted { attempts: ATTEMPTS }.into())
+    Err(Error::LockInterrupted { attempts: ATTEMPTS }.into())
 }
 
 /// Write a standard message to the lock file. Use with [`lock()`].

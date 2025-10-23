@@ -723,7 +723,7 @@ impl Child {
                 Ok(0) => {
                     // This should have been set by `read()`, but if it didn’t
                     // we could end up at `unreachable!()` below, so we set it
-                    // here ot be sure.
+                    // here to be sure.
                     self.state = State::Polling;
                 }
                 Ok(length) => {
@@ -753,7 +753,7 @@ impl Child {
                         Ok(0) => {
                             // This should have been set by `read()`, but if it
                             // didn’t we could end up at `unreachable!()` below,
-                            // so we set it here ot be sure.
+                            // so we set it here to be sure.
                             self.state = State::Polling;
                         }
                         Ok(length) => {
