@@ -117,12 +117,13 @@ impl Timeout {
     /// a resolution greater than nanosecond. For example, on UNIX-like systems
     /// [`poll.2`] takes a timeout measured in milliseconds. To check if a
     /// timeout is expired in that context you should pass
-    /// [`Duration::from_millis(1)`] as `resolution`.
+    /// [`Duration::from_millis(1)`][`Duration::from_millis()`] as `resolution`.
     ///
     /// Essentially, the check is `timeout - elapsed < resolution`.
     ///
     /// A `resolution` of [`Duration::ZERO`] will be converted to
-    /// [`Duration::from_nanos(1)`], since no smaller resolution is possible.
+    /// [`Duration::from_nanos(1)`][Duration::from_nanos()], since no smaller
+    /// resolution is possible.
     ///
     /// Returns:
     ///   * `None` if the timeout has not expired.
