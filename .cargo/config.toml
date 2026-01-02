@@ -1,0 +1,3 @@
+# Problems with assert_cmd and shared build directory
+[build]
+build-dir = "{workspace-root}/target"

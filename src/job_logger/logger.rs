@@ -80,13 +80,10 @@ pub enum Error {
     /// ([`Destination::Directory`]). In that case we try multiple times to find
     /// a unique log file name and if we go over a maximum number of attempts
     /// we return [`Error::TooManyAttemptsCreatingUniqueLog`].
-    #[error("Could not create unique log file {last:?}: {error}")]
+    #[error("Could not create unique log file {path:?}: {error}")]
     CreatingLog {
-        /// How many names were attempted.
-        attempts: usize,
-
-        /// The path for the log file that failed.
-        last: PathBuf,
+        /// The path for the last log file that failed.
+        path: PathBuf,
 
         /// The error that occurred.
         error: io::Error,
@@ -491,13 +488,7 @@ impl JobLogger {
                     number = format!(".{i}");
                 }
                 Ok(file) => return Ok(Destination::File { path, file }),
-                Err(error) => {
-                    return Err(Error::CreatingLog {
-                        attempts: i,
-                        last: path,
-                        error,
-                    })
-                }
+                Err(error) => return Err(Error::CreatingLog { path, error }),
             }
         }
 

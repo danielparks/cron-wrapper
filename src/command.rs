@@ -13,7 +13,7 @@
 
 use crate::timeout::Timeout;
 use bstr::ByteSlice;
-use log::{debug, error, info, trace};
+use log::{debug, info, trace};
 use os_pipe::{pipe, PipeReader};
 use popol::{interest, set_nonblocking};
 use roundable::{Roundable, MILLISECOND};
