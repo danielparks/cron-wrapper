@@ -16,6 +16,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ github.head_ref }}
+          token: ${{ secrets.PUSH_TOKEN }}
       - uses: taiki-e/install-action@v2
         with:
           tool: prek
@@ -31,14 +32,3 @@ jobs:
             git commit -m $'`prek auto-update`\n\n[dependabot skip]'
             git push
           fi
-
-      - name: Trigger PR checks
-        uses: actions/github-script@v8
-        with:
-          script: |
-            github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: 'pr-checks.yaml',
-              ref: context.ref,
-            })
