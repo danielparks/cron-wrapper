@@ -70,7 +70,7 @@ impl PausableWriter {
     }
 
     /// Pause the writer: buffer future writes until unpaused.
-    pub fn pause(&mut self) {
+    pub const fn pause(&mut self) {
         self.paused = true;
     }
 

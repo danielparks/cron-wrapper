@@ -7,7 +7,7 @@ use clap_lex::OsStrExt;
 use cron_wrapper::command::{Signal, WordIterator, WordIteratorSource};
 use cron_wrapper::lock::default_lock_dir;
 use is_terminal::IsTerminal;
-use log::{log_enabled, Level::Trace};
+use log::{Level::Trace, log_enabled};
 use std::ffi::OsString;
 use std::fmt;
 use std::fs;

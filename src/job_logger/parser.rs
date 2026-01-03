@@ -2,6 +2,7 @@
 
 use crate::job_logger::{Kind, TrailingNewline};
 use nom::{
+    IResult,
     branch::alt,
     bytes::complete::{is_a, is_not, tag, take_until},
     character::complete::{char, digit1},
@@ -11,7 +12,6 @@ use nom::{
     },
     multi::{count, many0, separated_list1},
     sequence::{delimited, pair, preceded, separated_pair, tuple},
-    IResult,
 };
 use std::time::Duration;
 use thiserror::Error;
@@ -95,8 +95,8 @@ pub fn parse_log(
 
 /// Generate a parser for a metadata line of a structured log.
 #[allow(clippy::type_complexity)]
-pub fn metadata_line_parser<'a, E>(
-) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], (&'a [u8], Vec<u8>), E>
+pub fn metadata_line_parser<'a, E>()
+-> impl FnMut(&'a [u8]) -> IResult<&'a [u8], (&'a [u8], Vec<u8>), E>
 where
     E: ParseError<'a>,
 {
@@ -111,8 +111,8 @@ where
 /// Generate a parser for an event record in a structured log.
 ///
 /// Input is something like `b"1.123 out value\n"`.
-pub fn record_parser<'a, E>(
-) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Record, E>
+pub fn record_parser<'a, E>()
+-> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Record, E>
 where
     E: ParseError<'a>,
 {
@@ -252,8 +252,8 @@ fn unescape_value(input: &[u8], newline: TrailingNewline) -> Vec<u8> {
 ///  * The seconds are are more than [`u64::MAX`].
 ///  * The fractional seconds have more than nanosecond precision, i.e. there
 ///    are more than 9 digits.
-pub fn seconds_parser<'a, E>(
-) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Duration, E>
+pub fn seconds_parser<'a, E>()
+-> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Duration, E>
 where
     E: ParseError<'a>,
 {

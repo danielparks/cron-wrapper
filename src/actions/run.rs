@@ -1,7 +1,7 @@
 //! Run a command
 
-use crate::params::{error_color, Params, RunParams};
-use anyhow::{bail, Context};
+use crate::params::{Params, RunParams, error_color};
+use anyhow::{Context, bail};
 use bstr::ByteSlice;
 use cron_wrapper::command::{Command, Event};
 use cron_wrapper::job_logger::{Destination, JobLogger};

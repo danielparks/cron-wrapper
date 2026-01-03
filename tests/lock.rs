@@ -35,9 +35,11 @@ fn lock_conflict_immediate() {
             .unwrap();
         check!(!output.status.success(), "Should fail to obtain lock");
         check!(output.stdout.as_bstr() == "");
-        check!(output
-            .stderr
-            .starts_with(b"Error: Lock owned by another process"));
+        check!(
+            output
+                .stderr
+                .starts_with(b"Error: Lock owned by another process")
+        );
     });
 
     handle.join().unwrap();

@@ -1,7 +1,7 @@
 //! General tests of command line.
 
 use assert2::check;
-use bstr::{ByteSlice, B};
+use bstr::{B, ByteSlice};
 
 mod helpers;
 
@@ -109,7 +109,10 @@ fn mixed_output_unconditional_color() {
     .unwrap();
 
     check!(output.status.success());
-    check!(output.stdout.as_bstr() == "111\x1b[0m\x1b[38;5;9maaa\x1b[0m333\n\x1b[0m\x1b[38;5;9mbbb\n\x1b[0m");
+    check!(
+        output.stdout.as_bstr()
+            == "111\x1b[0m\x1b[38;5;9maaa\x1b[0m333\n\x1b[0m\x1b[38;5;9mbbb\n\x1b[0m"
+    );
     check!(output.stderr.as_bstr() == "");
 }
 
@@ -127,7 +130,10 @@ fn mixed_output_on_fail_color() {
     .unwrap();
 
     check!(output.status.code() == Some(1));
-    check!(output.stdout.as_bstr() == "111\x1b[0m\x1b[38;5;9maaa\x1b[0m333\n\x1b[0m\x1b[38;5;9mbbb\n\x1b[0m");
+    check!(
+        output.stdout.as_bstr()
+            == "111\x1b[0m\x1b[38;5;9maaa\x1b[0m333\n\x1b[0m\x1b[38;5;9mbbb\n\x1b[0m"
+    );
     check!(output.stderr.as_bstr() == "");
 }
 

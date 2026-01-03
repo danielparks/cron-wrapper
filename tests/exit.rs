@@ -2,7 +2,7 @@
 
 use assert2::check;
 use bstr::ByteSlice;
-use nix::sys::signal::{kill, Signal};
+use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
 use std::os::unix::process::ExitStatusExt;
 use std::time::{Duration, Instant};

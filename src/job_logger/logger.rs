@@ -13,8 +13,8 @@ use std::rc::Rc;
 use std::time::Instant;
 use termcolor::WriteColor;
 use thiserror::Error;
-use time::format_description::well_known::{iso8601, Iso8601};
 use time::OffsetDateTime;
+use time::format_description::well_known::{Iso8601, iso8601};
 
 /// Date and time format to use in log file names.
 const FILE_NAME_DATE_FORMAT: iso8601::EncodedConfig = iso8601::Config::DEFAULT
@@ -752,7 +752,7 @@ mod tests {
     use anyhow::anyhow;
     use assert2::check;
     use bstr::ByteSlice;
-    use regex::{bytes, Regex};
+    use regex::{Regex, bytes};
     use std::os::unix::process::ExitStatusExt;
     use std::process::ExitStatus;
     use std::time::Duration;
@@ -865,12 +865,14 @@ mod tests {
     fn stream_logger_escapes() {
         let (mut logger, output) = make_buffer_logger();
 
-        check!(logger
-            .log_event(&Event::Stdout(
-                b"tab:\t backslash:\\ esc:\x1b 0:\0 CR:\r LF:\n \
+        check!(
+            logger
+                .log_event(&Event::Stdout(
+                    b"tab:\t backslash:\\ esc:\x1b 0:\0 CR:\r LF:\n \
                 backspace:\x08 del:\x1f done"
-            ))
-            .is_ok());
+                ))
+                .is_ok()
+        );
 
         // Output should look like:
         //

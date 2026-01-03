@@ -14,9 +14,9 @@
 use crate::timeout::Timeout;
 use bstr::ByteSlice;
 use log::{debug, info, trace};
-use os_pipe::{pipe, PipeReader};
+use os_pipe::{PipeReader, pipe};
 use popol::{interest, set_nonblocking};
-use roundable::{Roundable, MILLISECOND};
+use roundable::{MILLISECOND, Roundable};
 use std::cmp;
 use std::collections::VecDeque;
 use std::ffi::OsString;
@@ -33,7 +33,7 @@ use thiserror::Error;
 ///
 /// [`kill()`]: https://docs.rs/nix/latest/nix/sys/signal/fn.kill.html
 /// [`Signal`]: https://docs.rs/nix/latest/nix/sys/signal/enum.Signal.html
-pub use nix::sys::signal::{kill, Signal};
+pub use nix::sys::signal::{Signal, kill};
 
 /// Re-export [`Pid`] from [nix] for convenience.
 ///
@@ -376,7 +376,7 @@ impl Command {
     /// let_assert!(Some(Event::Combined(bytes)) = child.next_event());
     /// assert!(b"hello world\n".starts_with(bytes));
     /// ```
-    pub fn combine_streams(&mut self, combine: bool) -> &mut Self {
+    pub const fn combine_streams(&mut self, combine: bool) -> &mut Self {
         self.combine_streams = combine;
         self
     }
@@ -478,7 +478,7 @@ impl Command {
     /// let_assert!(Some(Event::Stdout(b"b")) = child.next_event());
     /// let_assert!(Some(Event::Stdout(b"\n")) = child.next_event());
     /// ```
-    pub fn buffer_size(&mut self, buffer_size: usize) -> &mut Self {
+    pub const fn buffer_size(&mut self, buffer_size: usize) -> &mut Self {
         self.buffer_size = buffer_size;
         self
     }
@@ -641,7 +641,7 @@ impl Child {
     /// assert!(child.process_mut().wait().unwrap().success());
     /// ```
     #[must_use]
-    pub fn process_mut(&mut self) -> &mut process::Child {
+    pub const fn process_mut(&mut self) -> &mut process::Child {
         &mut self.process
     }
 
@@ -971,10 +971,10 @@ impl ChildOutput {
             (StreamType::Combined, Self::Combined(output)) => {
                 output.read(buffer)
             }
-            (StreamType::Stdout, Self::Separate { ref mut stdout, .. }) => {
+            (StreamType::Stdout, Self::Separate { stdout, .. }) => {
                 stdout.read(buffer)
             }
-            (StreamType::Stderr, Self::Separate { ref mut stderr, .. }) => {
+            (StreamType::Stderr, Self::Separate { stderr, .. }) => {
                 stderr.read(buffer)
             }
             (which, _) => {
@@ -1054,7 +1054,7 @@ where
     type Item = &'a OsString;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(ref mut iter) = self.iter {
+        if let Some(iter) = &mut self.iter {
             iter.next()
         } else {
             // First element: command.

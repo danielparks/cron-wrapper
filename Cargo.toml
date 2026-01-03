@@ -10,8 +10,8 @@ readme = "README.md"
 keywords = []
 categories = [] # https://crates.io/category_slugs
 license = "MIT OR Apache-2.0"
-edition = "2021"
-rust-version = "1.74.1"
+edition = "2024"
+rust-version = "1.92"
 
 [dependencies]
 anyhow = "1.0.44"

@@ -16,7 +16,7 @@ use termcolor::WriteColor;
 mod actions;
 use actions::{replay, run};
 mod params;
-use params::{error_color, Action, Params};
+use params::{Action, Params, error_color};
 
 /// Wrapper to handle errors.
 ///

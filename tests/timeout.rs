@@ -51,10 +51,12 @@ fn sleep_touch_ok() {
 fn sleep_touch_run_timeout() {
     let start = Instant::now();
     run_sleep_touch(["--run-timeout", "10ms"], |output, marker| {
-        check!(output
-            .stderr
-            .as_bstr()
-            .starts_with_str("Error: Run timed out after"));
+        check!(
+            output
+                .stderr
+                .as_bstr()
+                .starts_with_str("Error: Run timed out after")
+        );
         check!(output.status.code() == Some(1));
         check!(
             start.elapsed() < Duration::from_millis(100),
@@ -74,10 +76,12 @@ fn sleep_touch_run_timeout_no_signal() {
     run_sleep_touch(
         ["--error-signal", "none", "--run-timeout", "10ms"],
         |output, marker| {
-            check!(output
-                .stderr
-                .as_bstr()
-                .starts_with_str("Error: Run timed out after"));
+            check!(
+                output
+                    .stderr
+                    .as_bstr()
+                    .starts_with_str("Error: Run timed out after")
+            );
             check!(output.status.code() == Some(1));
             check!(
                 start.elapsed() < Duration::from_millis(100),

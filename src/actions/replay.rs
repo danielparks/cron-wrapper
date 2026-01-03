@@ -1,10 +1,10 @@
 //! Replay logs
 
-use crate::params::{error_color, Params, ReplayParams};
+use crate::params::{Params, ReplayParams, error_color};
 use anyhow::{anyhow, bail};
 use bstr::ByteSlice;
-use cron_wrapper::job_logger::parser::parse_log;
 use cron_wrapper::job_logger::Kind;
+use cron_wrapper::job_logger::parser::parse_log;
 use std::fs;
 use std::io::Write;
 use std::str;
