@@ -1,4 +1,4 @@
-use assert_cmd::prelude::*;
+use assert_cmd::cargo;
 use std::ffi::OsStr;
 use std::process::Command;
 
@@ -7,7 +7,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let mut command = Command::cargo_bin("cron-wrapper").unwrap();
+    let mut command = Command::new(cargo::cargo_bin!());
     command.args(args);
     command
 }
