@@ -311,7 +311,8 @@ fn parse_duration(input: &str) -> anyhow::Result<Duration> {
             .map(Duration::from_secs)
             .map_err(Into::into)
     } else {
-        let duration = duration_str::parse(input)?;
+        let duration = duration_str::parse(input)
+            .map_err(|message| anyhow!("{message}"))?;
         // subsec_nanos() will always be >= subsec_millis() * 1e6
         #[allow(clippy::arithmetic_side_effects)]
         if duration.subsec_nanos() == duration.subsec_millis() * 1_000_000 {
