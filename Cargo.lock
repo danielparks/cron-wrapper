@@ -569,9 +569,9 @@ checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
 
 [[package]]
 name = "roundable"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d64e444431f91b47ec1dd7230a1a6557daa19f0bf20495aaae8899cf1e84ab75"
+checksum = "034c92e809b6c2e9c7fe11e63a71d7d055571a00762bdbbd06f54e9fd2f94369"
 
 [[package]]
 name = "rust_decimal"
