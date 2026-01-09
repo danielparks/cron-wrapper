@@ -25,7 +25,7 @@ home = "0.5.12"
 is-terminal = "0.4.17"
 log = "0.4.29"
 nix = { version = "0.30.1", default-features = false, features = ["signal", "process", "user"] }
-nom = "7.1.3"
+nom = "8.0.0"
 os_pipe = "1.2.3"
 popol = "3.0.1"
 roundable = "0.2.0"

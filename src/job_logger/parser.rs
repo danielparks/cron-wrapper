@@ -2,7 +2,7 @@
 
 use crate::job_logger::{Kind, TrailingNewline};
 use nom::{
-    IResult,
+    Parser,
     branch::alt,
     bytes::complete::{is_a, is_not, tag, take_until},
     character::complete::{char, digit1},
@@ -11,7 +11,7 @@ use nom::{
         success, value,
     },
     multi::{count, many0, separated_list1},
-    sequence::{delimited, pair, preceded, separated_pair, tuple},
+    sequence::{delimited, pair, preceded, separated_pair},
 };
 use std::time::Duration;
 use thiserror::Error;
@@ -84,7 +84,7 @@ pub fn parse_log(
         all_consuming(pair(success(Vec::new()), many0(record_parser()))),
     ));
 
-    let (rest, (metadata, records)) = parser(input)?;
+    let (rest, (metadata, records)) = parser.parse(input)?;
     assert!(
         rest.is_empty(),
         "Should be impossible: all_consuming() returned trailing data."
@@ -95,8 +95,9 @@ pub fn parse_log(
 
 /// Generate a parser for a metadata line of a structured log.
 #[allow(clippy::type_complexity)]
+#[must_use]
 pub fn metadata_line_parser<'a, E>()
--> impl FnMut(&'a [u8]) -> IResult<&'a [u8], (&'a [u8], Vec<u8>), E>
+-> impl Parser<&'a [u8], Output = (&'a [u8], Vec<u8>), Error = E>
 where
     E: ParseError<'a>,
 {
@@ -111,8 +112,9 @@ where
 /// Generate a parser for an event record in a structured log.
 ///
 /// Input is something like `b"1.123 out value\n"`.
+#[must_use]
 pub fn record_parser<'a, E>()
--> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Record, E>
+-> impl Parser<&'a [u8], Output = Record, Error = E>
 where
     E: ParseError<'a>,
 {
@@ -131,7 +133,7 @@ where
 
     flat_map(
         // Parse "1.123 out " and note the number of bytes captured, then...
-        consumed(tuple((seconds_parser(), kind_parser))),
+        consumed((seconds_parser(), kind_parser)),
         // ...parse the remainder of the record (possibly multiple lines) now
         // that we know how long the indent should be.
         |(prefix, (time_offset, kind))| {
@@ -145,10 +147,11 @@ where
 }
 
 /// Generate a parser for a metadata or record value.
+#[must_use]
 pub fn value_parser<'a, E>(
     indent: usize,
     newline: TrailingNewline,
-) -> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Vec<u8>, E>
+) -> impl Parser<&'a [u8], Output = Vec<u8>, Error = E>
 where
     E: ParseError<'a>,
 {
@@ -253,7 +256,7 @@ fn unescape_value(input: &[u8], newline: TrailingNewline) -> Vec<u8> {
 ///  * The fractional seconds have more than nanosecond precision, i.e. there
 ///    are more than 9 digits.
 pub fn seconds_parser<'a, E>()
--> impl FnMut(&'a [u8]) -> IResult<&'a [u8], Duration, E>
+-> impl Parser<&'a [u8], Output = Duration, Error = E>
 where
     E: ParseError<'a>,
 {
@@ -470,7 +473,7 @@ mod tests {
 
     /// Parse a string using `record_parser()`.
     fn parse_record_str(s: &str) -> Result<(&[u8], Record), NomError<'_>> {
-        record_parser()(s.as_bytes())
+        record_parser().parse(s.as_bytes())
     }
 
     /// Generate a `Result<..>` that might be produced by `parse_record_str()`
@@ -570,7 +573,8 @@ mod tests {
     fn parse_metadata_str(
         s: &str,
     ) -> Result<(&str, (&str, String)), NomError<'_>> {
-        let (rest, (key, value)) = metadata_line_parser()(s.as_bytes())?;
+        let (rest, (key, value)) =
+            metadata_line_parser().parse(s.as_bytes())?;
         Ok((
             std::str::from_utf8(rest).unwrap(),
             (
