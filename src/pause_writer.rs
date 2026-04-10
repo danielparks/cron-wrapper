@@ -34,7 +34,7 @@ pub struct PausableWriter {
 }
 
 impl PausableWriter {
-    /// Create a new paused `PausableWriter` for stdout
+    /// Create a new paused `PausableWriter` for stdout.
     #[must_use]
     pub fn stdout(color_choice: ColorChoice, paused: bool) -> Self {
         let buffer_writer = BufferWriter::stdout(color_choice);
@@ -47,7 +47,7 @@ impl PausableWriter {
         }
     }
 
-    /// Whether or not this is paused
+    /// Whether or not this is paused.
     pub const fn is_paused(&self) -> bool {
         self.paused
     }

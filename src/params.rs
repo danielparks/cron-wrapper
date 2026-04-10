@@ -22,15 +22,15 @@ use termcolor::{Color, ColorSpec};
 #[derive(Debug, Parser)]
 #[clap(version, about)]
 pub struct Params {
-    /// What action to take
+    /// What action to take.
     #[command(subcommand)]
     pub action: Action,
 
-    /// Whether or not to output in color
+    /// Whether or not to output in color.
     #[clap(long, default_value = "auto", value_name = "WHEN")]
     pub color: ColorChoice,
 
-    /// Verbosity (may be repeated up to three times)
+    /// Verbosity (may be repeated up to three times).
     #[clap(short, long, action = clap::ArgAction::Count)]
     pub verbose: u8,
 }
@@ -85,30 +85,30 @@ pub enum Action {
 #[derive(Debug, Args)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct RunParams {
-    /// The executable to run
+    /// The executable to run.
     pub command: OsString,
 
-    /// Arguments to pass to the executable
+    /// Arguments to pass to the executable.
     #[clap(allow_hyphen_values = true)]
     pub args: Vec<OsString>,
 
-    /// Pass through output if the child wrote to stderr
+    /// Pass through output if the child wrote to stderr.
     #[clap(short = 'E', long)]
     pub on_error: bool,
 
-    /// Pass through output if the child returned a non-0 exit code
+    /// Pass through output if the child returned a non-0 exit code.
     #[clap(short = 'F', long)]
     pub on_fail: bool,
 
-    /// Always print child’s exit code
+    /// Always print child’s exit code.
     #[clap(long)]
     pub show_exit_code: bool,
 
-    /// Print child’s exit code if it’s not 0
+    /// Print child’s exit code if it’s not 0.
     #[clap(short = 'X', long)]
     pub show_fail_code: bool,
 
-    /// Combine stdout and stderr output
+    /// Combine stdout and stderr output.
     ///
     /// Separate streams can sometimes be read out of order when writes occur
     /// very close together. Combining the streams solves those problems, but
@@ -116,7 +116,7 @@ pub struct RunParams {
     #[clap(short = 'C', long)]
     pub combine_output: bool,
 
-    /// Store structured log files in DIRECTORY
+    /// Store structured log files in DIRECTORY.
     ///
     /// Log files will be named YYYY-mm-ddTHH:MM:SS-ZZ:ZZ.$command.$pid.log. For
     /// example, if you were running /bin/ls, the file name might be
@@ -126,7 +126,7 @@ pub struct RunParams {
     #[clap(short = 'l', long, value_name = "DIRECTORY")]
     pub log_dir: Option<PathBuf>,
 
-    /// Save structured log data to PATH
+    /// Save structured log data to PATH.
     ///
     /// This will save structured logging data to PATH. If a file already exists
     /// at PATH, it will be overwritten.
@@ -135,14 +135,14 @@ pub struct RunParams {
     #[clap(short = 'L', long, value_name = "PATH", conflicts_with = "log_dir")]
     pub log_file: Option<PathBuf>,
 
-    /// Output structured log to stdout instead of normal output
+    /// Output structured log to stdout instead of normal output.
     ///
     /// This honors --on-error and --on-fail, and can be used in addition to
     /// --log-dir or --log-file.
     #[clap(short = 'S', long)]
     pub log_stdout: bool,
 
-    /// Exit if the child runs for longer than DURATION
+    /// Exit if the child runs for longer than DURATION.
     ///
     /// DURATION may by a number representing seconds, or a string like "1s",
     /// "2h", or "2s 50ms". It cannot be more precise than milliseconds.
@@ -157,7 +157,7 @@ pub struct RunParams {
     )]
     pub run_timeout: Option<Duration>,
 
-    /// Exit if the child doesn’t output for longer than DURATION
+    /// Exit if the child doesn’t output for longer than DURATION.
     ///
     /// DURATION may by a number representing seconds, or a string like "1s",
     /// "2h", or "2s 50ms". It cannot be more precise than milliseconds.
@@ -228,7 +228,7 @@ pub struct RunParams {
     #[clap(long, value_name = "PATH")]
     pub lock_file: Option<PathBuf>,
 
-    /// Hidden: how large a buffer to use
+    /// Hidden: how large a buffer to use.
     #[clap(
         long,
         default_value_t = 4096,
@@ -287,7 +287,7 @@ impl<'a> WordIteratorSource<'a> for RunParams {
 #[derive(Debug, Args)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct ReplayParams {
-    /// The log file to replay
+    /// The log file to replay.
     pub log_file: PathBuf,
 
     /// Output metadata before actual output.
@@ -385,17 +385,17 @@ pub fn error_color() -> ColorSpec {
     color
 }
 
-/// Whether or not to output in color
+/// Whether or not to output in color.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, ValueEnum)]
 pub enum ColorChoice {
-    /// Output in color when running in a terminal that supports it
+    /// Output in color when running in a terminal that supports it.
     #[default]
     Auto,
 
-    /// Always output in color
+    /// Always output in color.
     Always,
 
-    /// Never output in color
+    /// Never output in color.
     Never,
 }
 
@@ -713,9 +713,7 @@ mod tests {
             ])
         );
         let_assert!(Action::Run(run_params) = params.action);
-        check!(
-            run_params.idle_timeout == Some(Duration::from_secs(2 * 60 * 60))
-        );
+        check!(run_params.idle_timeout == Some(Duration::from_hours(2)));
     }
 
     #[test]

@@ -161,7 +161,7 @@ impl JobLogger {
         Ok(job_logger)
     }
 
-    /// Add a destination
+    /// Add a destination.
     pub fn add_destination(&mut self, destination: Destination) -> &Self {
         self.destinations.push(destination);
         self

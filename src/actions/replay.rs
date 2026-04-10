@@ -1,4 +1,4 @@
-//! Replay logs
+//! Replay logs.
 
 use crate::params::{Params, ReplayParams, error_color};
 use anyhow::{anyhow, bail};

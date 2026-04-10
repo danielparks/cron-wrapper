@@ -230,7 +230,7 @@ impl Ord for Timeout {
     ///
     /// `self.cmp(&other)` returns `Ordering::Greater` if `self > other`.
     ///
-    /// [Read more](Ord::cmp())
+    /// [Read more](Ord::cmp()).
     fn cmp(&self, other: &Self) -> Ordering {
         match (self.timeout(), other.timeout()) {
             (None, None) => Ordering::Equal,

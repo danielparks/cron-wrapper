@@ -1,4 +1,4 @@
-//! Run a command
+//! Run a command.
 
 use crate::params::{Params, RunParams, error_color};
 use anyhow::{Context, bail};

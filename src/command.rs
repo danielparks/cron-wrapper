@@ -303,7 +303,7 @@ enum ChildOutput {
 }
 
 impl Command {
-    /// Produce a new `Command`
+    /// Produce a new `Command`.
     ///
     /// This leaves all timeouts disabled and sets the buffer size to 4 KiB.
     ///
@@ -332,7 +332,7 @@ impl Command {
         }
     }
 
-    /// Set the command arguments
+    /// Set the command arguments.
     ///
     /// ```rust
     /// use assert2::{assert, let_assert};
@@ -356,7 +356,7 @@ impl Command {
         self
     }
 
-    /// Set whether or combine stdout and stderr streams
+    /// Set whether or combine stdout and stderr streams.
     ///
     /// Separate streams can sometimes be read out of order when writes occur
     /// very close together. Combining the streams solves those problems, but
@@ -381,7 +381,7 @@ impl Command {
         self
     }
 
-    /// Set the idle timeout
+    /// Set the idle timeout.
     ///
     /// This sets how long [`Child::next_event()`] waits for input from the
     /// child before returning `Some(Event::Error(Error::IdleTimeout { .. }))`.
@@ -419,7 +419,7 @@ impl Command {
         self
     }
 
-    /// Set the run timeout
+    /// Set the run timeout.
     ///
     /// This sets how long the child is allowed to run before a call to
     /// [`Child::next_event()`] returns `Some(Event::Error(Error::RunTimeout {
@@ -458,7 +458,7 @@ impl Command {
         self
     }
 
-    /// Set the buffer size
+    /// Set the buffer size.
     ///
     /// This sets the size of the buffer used to read child output. It is also
     /// the maximum size of output that will be returned in an [`Event::Stdout`]
