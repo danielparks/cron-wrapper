@@ -14,7 +14,7 @@ edition = "2024"
 rust-version = "1.92"
 
 [dependencies]
-anyhow = "1.0.100"
+anyhow = "1.0.103"
 blake3 = "1.8.3"
 bstr = { version = "1.12.1", default-features = false, features = ["alloc"] }
 clap = { version = "4.5", features = ["derive"] }
