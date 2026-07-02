@@ -282,7 +282,7 @@ pub fn args_sh() -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assert2::{check, let_assert};
+    use assert2::{assert, check};
     use tempfile::tempdir;
 
     #[test]
@@ -291,25 +291,25 @@ mod tests {
         let foo_file = directory.path().join("foo");
 
         // Check that creating a file works.
-        let_assert!(
-            Ok(()) =
+        assert!(
+            let Ok(()) =
                 lock(&foo_file, Behavior::Return, static_message("Ok"), || {
                     Ok(())
                 })
         );
 
-        let_assert!(Ok(contents) = fs::read(&foo_file));
+        assert!(let Ok(contents) = fs::read(&foo_file));
         check!(contents.as_bstr() == b"Ok".as_bstr());
 
         // Check that using the file a second time works.
-        let_assert!(
-            Ok(()) =
+        assert!(
+            let Ok(()) =
                 lock(&foo_file, Behavior::Return, static_message("2"), || {
                     Ok(())
                 })
         );
 
-        let_assert!(Ok(contents) = fs::read(&foo_file));
+        assert!(let Ok(contents) = fs::read(&foo_file));
         check!(contents.as_bstr() == b"2".as_bstr());
     }
 
@@ -320,28 +320,28 @@ mod tests {
         let foo_file = directory.path().join("foo");
 
         // Check that creating a file works.
-        let_assert!(
-            Ok(()) =
+        assert!(
+            let Ok(()) =
                 lock(&foo_file, Behavior::Return, standard_message, || {
                     Ok(())
                 })
         );
 
-        let_assert!(Ok(contents) = fs::read(&foo_file));
+        assert!(let Ok(contents) = fs::read(&foo_file));
         check!(
             contents.iter().filter(|&c| *c == b'\n').count() == 2,
             "expected contents to have 2 newlines"
         );
 
         // Check that using the file a second time works.
-        let_assert!(
-            Ok(()) =
+        assert!(
+            let Ok(()) =
                 lock(&foo_file, Behavior::Return, standard_message, || {
                     Ok(())
                 })
         );
 
-        let_assert!(Ok(contents) = fs::read(&foo_file));
+        assert!(let Ok(contents) = fs::read(&foo_file));
         check!(
             contents.iter().filter(|&c| *c == b'\n').count() == 2,
             "expected contents to have 2 newlines"

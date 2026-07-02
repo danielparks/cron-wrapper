@@ -335,7 +335,7 @@ impl Command {
     /// Set the command arguments.
     ///
     /// ```rust
-    /// use assert2::{assert, let_assert};
+    /// use assert2::assert;
     /// use cron_wrapper::command::{Command, Event};
     ///
     /// let mut child = Command::new("/bin/echo", [])
@@ -344,7 +344,7 @@ impl Command {
     ///     .unwrap();
     ///
     /// // Depending on timing, the first event may only get part of the output.
-    /// let_assert!(Some(Event::Stdout(bytes)) = child.next_event());
+    /// assert!(let Some(Event::Stdout(bytes)) = child.next_event());
     /// assert!(b"hello world\n".starts_with(bytes));
     /// ```
     pub fn args<S, I>(&mut self, args: I) -> &mut Self
@@ -363,7 +363,7 @@ impl Command {
     /// prevents us from determining what is on stdout and what is on stderr.
     ///
     /// ```rust
-    /// use assert2::{assert, let_assert};
+    /// use assert2::assert;
     /// use cron_wrapper::command::{Command, Event};
     ///
     /// let mut child = Command::new("/bin/echo", [])
@@ -373,7 +373,7 @@ impl Command {
     ///     .unwrap();
     ///
     /// // Depending on timing, the first event may only get part of the output.
-    /// let_assert!(Some(Event::Combined(bytes)) = child.next_event());
+    /// assert!(let Some(Event::Combined(bytes)) = child.next_event());
     /// assert!(b"hello world\n".starts_with(bytes));
     /// ```
     pub const fn combine_streams(&mut self, combine: bool) -> &mut Self {
@@ -396,7 +396,7 @@ impl Command {
     ///   * [`None`] (will be converted to `Timeout::Never`)
     ///
     /// ```rust
-    /// use assert2::let_assert;
+    /// use assert2::assert;
     /// use cron_wrapper::command::{Command, Error, Event};
     /// use cron_wrapper::timeout::Timeout;
     /// use std::time::Duration;
@@ -406,8 +406,8 @@ impl Command {
     ///     .spawn()
     ///     .unwrap();
     ///
-    /// let_assert!(
-    ///     Some(Event::Error(Error::IdleTimeout { .. })) =
+    /// assert!(
+    ///     let Some(Event::Error(Error::IdleTimeout { .. })) =
     ///         child.next_event()
     /// );
     /// ```
@@ -435,7 +435,7 @@ impl Command {
     ///   * [`None`] (will be converted to `Timeout::Never`)
     ///
     /// ```rust
-    /// use assert2::let_assert;
+    /// use assert2::assert;
     /// use cron_wrapper::command::{Command, Error, Event};
     /// use cron_wrapper::timeout::Timeout;
     /// use std::time::Duration;
@@ -445,8 +445,8 @@ impl Command {
     ///     .spawn()
     ///     .unwrap();
     ///
-    /// let_assert!(
-    ///     Some(Event::Error(Error::RunTimeout { .. })) =
+    /// assert!(
+    ///     let Some(Event::Error(Error::RunTimeout { .. })) =
     ///         child.next_event()
     /// );
     /// ```
@@ -466,7 +466,7 @@ impl Command {
     /// (4 KiB).
     ///
     /// ```rust
-    /// use assert2::let_assert;
+    /// use assert2::assert;
     /// use cron_wrapper::command::{Command, Event};
     ///
     /// let mut child = Command::new("/bin/echo", ["ab"])
@@ -474,9 +474,9 @@ impl Command {
     ///     .spawn()
     ///     .unwrap();
     ///
-    /// let_assert!(Some(Event::Stdout(b"a")) = child.next_event());
-    /// let_assert!(Some(Event::Stdout(b"b")) = child.next_event());
-    /// let_assert!(Some(Event::Stdout(b"\n")) = child.next_event());
+    /// assert!(let Some(Event::Stdout(b"a")) = child.next_event());
+    /// assert!(let Some(Event::Stdout(b"b")) = child.next_event());
+    /// assert!(let Some(Event::Stdout(b"\n")) = child.next_event());
     /// ```
     pub const fn buffer_size(&mut self, buffer_size: usize) -> &mut Self {
         self.buffer_size = buffer_size;
@@ -488,17 +488,17 @@ impl Command {
     /// This may be run multiple times to spawn multiple children.
     ///
     /// ```rust
-    /// use assert2::{check, let_assert};
+    /// use assert2::{assert, check};
     /// use cron_wrapper::command::{Command, Event};
     ///
     /// let command = Command::new("/bin/sleep", ["0"]);
     /// let mut child = command.spawn().unwrap();
     /// let mut child2 = command.spawn().unwrap();
     ///
-    /// let_assert!(Some(Event::Exit(status)) = child.next_event());
+    /// assert!(let Some(Event::Exit(status)) = child.next_event());
     /// check!(status.success());
     ///
-    /// let_assert!(Some(Event::Exit(status)) = child2.next_event());
+    /// assert!(let Some(Event::Exit(status)) = child2.next_event());
     /// check!(status.success());
     /// ```
     ///
@@ -622,13 +622,13 @@ impl Child {
     /// # Using [`process::Child::kill()`]:
     ///
     /// ```rust
-    /// use assert2::{check, let_assert};
+    /// use assert2::{assert, check};
     /// use cron_wrapper::command::{Command, Event};
     ///
     /// let mut child = Command::new("/bin/sleep", ["100"]).spawn().unwrap();
     /// child.process_mut().kill().unwrap();
     ///
-    /// let_assert!(Some(Event::Exit(status)) = child.next_event());
+    /// assert!(let Some(Event::Exit(status)) = child.next_event());
     /// check!(!status.success());
     /// ```
     ///
@@ -648,13 +648,13 @@ impl Child {
     /// Send a signal to the child. See [`nix::sys::signal::kill()`].
     ///
     /// ```rust
-    /// use assert2::{check, let_assert};
+    /// use assert2::{assert, check};
     /// use cron_wrapper::command::{Command, Event, Signal};
     ///
     /// let mut child = Command::new("/bin/sleep", ["100"]).spawn().unwrap();
     /// child.kill(Signal::SIGKILL).unwrap();
     ///
-    /// let_assert!(Some(Event::Exit(status)) = child.next_event());
+    /// assert!(let Some(Event::Exit(status)) = child.next_event());
     /// check!(!status.success());
     /// ```
     ///
@@ -695,7 +695,7 @@ impl Child {
     /// the same thing on every future call.
     ///
     /// ```rust
-    /// use assert2::{check, let_assert};
+    /// use assert2::{assert, check};
     /// use cron_wrapper::command::{Command, Event};
     ///
     /// let mut child = Command::new("/bin/echo", ["hello"]).spawn().unwrap();
@@ -714,7 +714,7 @@ impl Child {
     /// }
     /// check!(b"hello\n" == &buffer[..]);
     ///
-    /// let_assert!(None = child.next_event());
+    /// assert!(let None = child.next_event());
     /// ```
     pub fn next_event(&mut self) -> Option<Event<'_>> {
         // Are we still reading?
@@ -1083,7 +1083,7 @@ fn timeout_error(timeout: &Timeout, expired: Timeout) -> Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use assert2::{assert, check, let_assert};
+    use assert2::{assert, check};
     use std::thread;
     use std::time::Instant;
 
@@ -1239,10 +1239,10 @@ mod tests {
         let start = Instant::now();
         let mut child = Command::new("/bin/sleep", ["0.01"]).spawn().unwrap();
 
-        let_assert!(Ok(status) = child.wait());
+        assert!(let Ok(status) = child.wait());
         check!(status.success());
 
-        let_assert!(Ok(status) = child.wait());
+        assert!(let Ok(status) = child.wait());
         check!(status.success());
 
         check!(start.elapsed() < Duration::from_millis(19));
@@ -1256,11 +1256,11 @@ mod tests {
             .spawn()
             .unwrap();
 
-        let_assert!(Err(Error::IdleTimeout { .. }) = child.wait());
+        assert!(let Err(Error::IdleTimeout { .. }) = child.wait());
         check!(start.elapsed() < Duration::from_millis(20));
 
         thread::sleep(Duration::from_millis(20));
-        let_assert!(Ok(status) = child.wait());
+        assert!(let Ok(status) = child.wait());
         check!(status.success());
     }
 
@@ -1272,10 +1272,10 @@ mod tests {
             .spawn()
             .unwrap();
 
-        let_assert!(Err(Error::RunTimeout { .. }) = child.wait());
+        assert!(let Err(Error::RunTimeout { .. }) = child.wait());
         check!(start.elapsed() < Duration::from_millis(20));
 
         thread::sleep(Duration::from_millis(20));
-        let_assert!(Err(Error::RunTimeout { .. }) = child.wait());
+        assert!(let Err(Error::RunTimeout { .. }) = child.wait());
     }
 }

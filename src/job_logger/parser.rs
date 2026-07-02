@@ -339,7 +339,7 @@ mod tests {
     #![allow(clippy::cognitive_complexity)]
 
     use super::*;
-    use assert2::{check, let_assert};
+    use assert2::{assert, check};
 
     /// Maximum number of nanoseconds in a Duration, i.e. 1s - 1ns.
     const MAX_NANOS: &str = "999999999";
@@ -395,8 +395,8 @@ mod tests {
 
     #[test]
     fn log_parser_simple() {
-        let_assert!(
-            Ok((metadata, records)) = parse_log_str(
+        assert!(
+            let Ok((metadata, records)) = parse_log_str(
                 "key: value\n\
                 \n\
                 0.000 exit 0\n"
@@ -415,8 +415,8 @@ mod tests {
 
     #[test]
     fn log_parser_blank_no_metadata() {
-        let_assert!(
-            Ok((metadata, records)) = parse_log_str("\n0.001 out foo\n")
+        assert!(
+            let Ok((metadata, records)) = parse_log_str("\n0.001 out foo\n")
         );
         check!(metadata.as_slice() == []);
         check!(
@@ -431,7 +431,7 @@ mod tests {
 
     #[test]
     fn log_parser_no_blank_no_metadata() {
-        let_assert!(Ok((metadata, records)) = parse_log_str("1 err bar\\\n"));
+        assert!(let Ok((metadata, records)) = parse_log_str("1 err bar\\\n"));
         check!(metadata.as_slice() == []);
         check!(
             records.as_slice()
@@ -445,28 +445,28 @@ mod tests {
 
     #[test]
     fn log_parser_blank_no_records() {
-        let_assert!(Ok((metadata, records)) = parse_log_str("k: v\n\n"));
+        assert!(let Ok((metadata, records)) = parse_log_str("k: v\n\n"));
         check!(metadata.as_slice() == [("k", "v".to_owned())]);
         check!(records.as_slice() == []);
     }
 
     #[test]
     fn log_parser_no_blank_no_records() {
-        let_assert!(Ok((metadata, records)) = parse_log_str("k: v\n"));
+        assert!(let Ok((metadata, records)) = parse_log_str("k: v\n"));
         check!(metadata.as_slice() == [("k", "v".to_owned())]);
         check!(records.as_slice() == []);
     }
 
     #[test]
     fn log_parser_empty() {
-        let_assert!(Ok((metadata, records)) = parse_log_str(""));
+        assert!(let Ok((metadata, records)) = parse_log_str(""));
         check!(metadata.as_slice() == []);
         check!(records.as_slice() == []);
     }
 
     #[test]
     fn log_parser_just_blank() {
-        let_assert!(Ok((metadata, records)) = parse_log_str("\n"));
+        assert!(let Ok((metadata, records)) = parse_log_str("\n"));
         check!(metadata.as_slice() == []);
         check!(records.as_slice() == []);
     }
@@ -586,31 +586,31 @@ mod tests {
 
     #[test]
     fn metadata_line_parser_ok() {
-        let_assert!(Ok(("", ("key", v))) = parse_metadata_str("key: value\n"));
+        assert!(let Ok(("", ("key", v))) = parse_metadata_str("key: value\n"));
         check!(v == "value");
-        let_assert!(Ok(("", ("key", v))) = parse_metadata_str("key:  v\n"));
+        assert!(let Ok(("", ("key", v))) = parse_metadata_str("key:  v\n"));
         check!(v == " v");
-        let_assert!(Ok(("", ("key", v))) = parse_metadata_str("key: b\\b\n"));
+        assert!(let Ok(("", ("key", v))) = parse_metadata_str("key: b\\b\n"));
         check!(v == "b\x08");
-        let_assert!(Ok(("", ("key", v))) = parse_metadata_str("key: \n"));
+        assert!(let Ok(("", ("key", v))) = parse_metadata_str("key: \n"));
         check!(v == "");
     }
 
     #[test]
     fn metadata_line_parser_ok_multiline() {
-        let_assert!(
-            Ok(("   2\n", ("k", v))) = parse_metadata_str("k: v\n   2\n")
+        assert!(
+            let Ok(("   2\n", ("k", v))) = parse_metadata_str("k: v\n   2\n")
         );
         check!(v == "v");
-        let_assert!(Ok(("", ("k", v))) = parse_metadata_str("k: v\n    2\n"));
+        assert!(let Ok(("", ("k", v))) = parse_metadata_str("k: v\n    2\n"));
         check!(v == "v\n2");
-        let_assert!(Ok(("", ("k", v))) = parse_metadata_str("k: v\n     2\n"));
+        assert!(let Ok(("", ("k", v))) = parse_metadata_str("k: v\n     2\n"));
         check!(v == "v\n 2");
-        let_assert!(
-            Ok(("", ("k", v))) = parse_metadata_str("k: v\n    2\n    3\n")
+        assert!(
+            let Ok(("", ("k", v))) = parse_metadata_str("k: v\n    2\n    3\n")
         );
         check!(v == "v\n2\n3");
-        let_assert!(Ok(("", ("k", v))) = parse_metadata_str("k: v\n    \n"));
+        assert!(let Ok(("", ("k", v))) = parse_metadata_str("k: v\n    \n"));
         check!(v == "v\n");
     }
 
@@ -642,8 +642,8 @@ mod tests {
         check!(seconds(u64::MAX) == str_to_duration(&max_secs, None).unwrap());
         check!(Duration::MAX == str_to_duration(&max_secs, MAX_NANOS).unwrap());
 
-        let_assert!(
-            Err(Error::TooManySeconds) =
+        assert!(
+            let Err(Error::TooManySeconds) =
                 str_to_duration(&overflow_seconds(), None)
         );
     }
@@ -661,12 +661,12 @@ mod tests {
         check!(nanos(1_002_003) == str_to_duration("0", "001002003").unwrap());
         check!(nanos(999_999_999) == str_to_duration("0", MAX_NANOS).unwrap());
 
-        let_assert!(
-            Err(Error::SubnanosecondPrecision) =
+        assert!(
+            let Err(Error::SubnanosecondPrecision) =
                 str_to_duration("0", "0010020039")
         );
-        let_assert!(
-            Err(Error::SubnanosecondPrecision) =
+        assert!(
+            let Err(Error::SubnanosecondPrecision) =
                 str_to_duration("0", "0010020030")
         );
     }

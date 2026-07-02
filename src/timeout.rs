@@ -34,12 +34,13 @@ pub enum Timeout {
     /// timeout. For example:
     ///
     /// ```rust
-    /// use assert2::let_assert;
+    /// use assert2::assert;
     /// use cron_wrapper::timeout::Timeout;
     /// use std::time::Duration;
     ///
-    /// let_assert!(
-    ///     Timeout::Future { .. } = Timeout::from(Duration::from_millis(100))
+    /// assert!(
+    ///     let Timeout::Future { .. }
+    ///         = Timeout::from(Duration::from_millis(100))
     /// );
     /// ```
     Future {
