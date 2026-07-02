@@ -114,8 +114,8 @@ pub enum Error {
         /// or [`process::ChildStderr::read()`]).
         error: io::Error,
 
-        /// Which child stream was being read when the error occurred (stdout or
-        /// stderr).
+        /// Which child stream was being read when the error occurred (stdout
+        /// or stderr).
         stream: StreamType,
     },
 

@@ -20,11 +20,18 @@ repos:
         exclude: "target/"
       - id: no-commit-to-branch
   - repo: https://github.com/crate-ci/typos
-    rev: v1.47.1
+    rev: v1.48.0
     hooks:
       - id: typos
         args: []
         exclude: "target/"
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: v1.26.1
+    hooks:
+      - id: zizmor
+        args:
+          - "--no-progress" # https://github.com/zizmorcore/zizmor/issues/582
+          - "--persona=pedantic"
   - repo: local
     hooks:
       - id: cargo clippy
@@ -42,6 +49,6 @@ repos:
       - id: cargo fmt
         name: cargo fmt
         language: system
-        entry: cargo fmt --check
+        entry: cargo +nightly fmt --check
         files: (\.rs|rustfmt\.toml)$
         pass_filenames: false

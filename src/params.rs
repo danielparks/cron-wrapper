@@ -118,8 +118,8 @@ pub struct RunParams {
 
     /// Store structured log files in DIRECTORY.
     ///
-    /// Log files will be named YYYY-mm-ddTHH:MM:SS-ZZ:ZZ.$command.$pid.log. For
-    /// example, if you were running /bin/ls, the file name might be
+    /// Log files will be named YYYY-mm-ddTHH:MM:SS-ZZ:ZZ.$command.$pid.log.
+    /// For example, if you were running /bin/ls, the file name might be
     /// 2023-05-10T20:05:17-07:00.ls.15297.log.
     ///
     /// Conflicts with --log-file <PATH>
@@ -128,8 +128,8 @@ pub struct RunParams {
 
     /// Save structured log data to PATH.
     ///
-    /// This will save structured logging data to PATH. If a file already exists
-    /// at PATH, it will be overwritten.
+    /// This will save structured logging data to PATH. If a file already
+    /// exists at PATH, it will be overwritten.
     ///
     /// Conflicts with --log-dir <DIRECTORY>
     #[clap(short = 'L', long, value_name = "PATH", conflicts_with = "log_dir")]
@@ -206,8 +206,8 @@ pub struct RunParams {
     /// Unique name used to ensure only one copy of this command is running at
     /// once.
     ///
-    /// No other copy of cron-wrapper will be able to run at the same time if it
-    /// uses the same lock name and the same lock directory.
+    /// No other copy of cron-wrapper will be able to run at the same time if
+    /// it uses the same lock name and the same lock directory.
     ///
     /// May not contain '/'. Conflicts with --lock-file <PATH>.
     #[clap(
