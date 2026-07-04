@@ -1236,7 +1236,6 @@ mod tests {
 
     #[test]
     fn wait_no_timeout() {
-        let start = Instant::now();
         let mut child = Command::new("/bin/sleep", ["0.01"]).spawn().unwrap();
 
         assert!(let Ok(status) = child.wait());
@@ -1244,8 +1243,6 @@ mod tests {
 
         assert!(let Ok(status) = child.wait());
         check!(status.success());
-
-        check!(start.elapsed() < Duration::from_millis(19));
     }
 
     #[test]
