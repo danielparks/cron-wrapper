@@ -916,7 +916,7 @@ impl Child {
                 Ok(count) => {
                     trace!(
                         "{stream:?}: read {count} bytes: {:?}",
-                        &self.buffer[..count].as_bstr()
+                        self.buffer[..count].as_bstr()
                     );
 
                     if count != self.buffer.len() {
