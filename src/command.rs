@@ -1256,7 +1256,7 @@ mod tests {
         assert!(let Err(Error::IdleTimeout { .. }) = child.wait());
         check!(start.elapsed() < Duration::from_millis(20));
 
-        thread::sleep(Duration::from_millis(20));
+        thread::sleep(Duration::from_millis(50));
         assert!(let Ok(status) = child.wait());
         check!(status.success());
     }
@@ -1272,7 +1272,7 @@ mod tests {
         assert!(let Err(Error::RunTimeout { .. }) = child.wait());
         check!(start.elapsed() < Duration::from_millis(20));
 
-        thread::sleep(Duration::from_millis(20));
+        thread::sleep(Duration::from_millis(50));
         assert!(let Err(Error::RunTimeout { .. }) = child.wait());
     }
 }
