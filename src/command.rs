@@ -821,7 +821,7 @@ impl Child {
         // a clone of it.
         let timeout = original_timeout.start();
 
-        // wait() does this internally, but try_wait() does not.
+        // process.wait() does this internally, but try_wait() does not.
         drop(self.process.stdin.take());
 
         loop {
@@ -1239,10 +1239,10 @@ mod tests {
         let mut child = Command::new("/bin/sleep", ["0.01"]).spawn().unwrap();
 
         assert!(let Ok(status) = child.wait());
-        check!(status.success());
+        check!(status.success(), "Initial success");
 
         assert!(let Ok(status) = child.wait());
-        check!(status.success());
+        check!(status.success(), "Still success");
     }
 
     #[test]
@@ -1253,12 +1253,24 @@ mod tests {
             .spawn()
             .unwrap();
 
-        assert!(let Err(Error::IdleTimeout { .. }) = child.wait());
-        check!(start.elapsed() < Duration::from_millis(20));
+        assert!(
+            let Err(Error::IdleTimeout { .. }) = child.wait(),
+            "IdleTimeout initially elapsed",
+        );
+        check!(
+            start.elapsed() < Duration::from_millis(20),
+            "IdleTimeout before command finished",
+        );
 
         thread::sleep(Duration::from_millis(50));
-        assert!(let Ok(status) = child.wait());
-        check!(status.success());
+        assert!(
+            let Ok(status) = child.wait(),
+            "wait() succeeds after sleeping to end of command",
+        );
+        check!(
+            status.success(),
+            "command succeeds after sleeping to end of command",
+        );
     }
 
     #[test]
@@ -1270,9 +1282,15 @@ mod tests {
             .unwrap();
 
         assert!(let Err(Error::RunTimeout { .. }) = child.wait());
-        check!(start.elapsed() < Duration::from_millis(20));
+        check!(
+            start.elapsed() < Duration::from_millis(20),
+            "RunTimeout initially elapsed",
+        );
 
         thread::sleep(Duration::from_millis(50));
-        assert!(let Err(Error::RunTimeout { .. }) = child.wait());
+        assert!(
+            let Err(Error::RunTimeout { .. }) = child.wait(),
+            "RunTimeout after run would have finished",
+        );
     }
 }
