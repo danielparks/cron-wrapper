@@ -50,7 +50,7 @@ fn sleep_touch_ok() {
 #[test]
 fn sleep_touch_run_timeout() {
     let start = Instant::now();
-    run_sleep_touch(["--run-timeout", "10ms"], |output, marker| {
+    run_sleep_touch(["--run-timeout", "5ms"], |output, marker| {
         check!(
             output
                 .stderr
@@ -60,7 +60,7 @@ fn sleep_touch_run_timeout() {
         check!(output.status.code() == Some(1));
         check!(
             start.elapsed() < Duration::from_millis(100),
-            "Should have died with a timeout after 10ms"
+            "Should have died with a timeout after 5ms"
         );
 
         // sleep_touch.sh sleeps for 0.1 seconds (100ms) before creating the
