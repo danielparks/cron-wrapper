@@ -1263,6 +1263,10 @@ mod tests {
         );
 
         thread::sleep(Duration::from_millis(50));
+        check!(
+            start.elapsed() >= Duration::from_millis(50),
+            "thread::sleep worked",
+        );
         assert!(
             let Ok(status) = child.wait(),
             "wait() succeeds after sleeping to end of command",
